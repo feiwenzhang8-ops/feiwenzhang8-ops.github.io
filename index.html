@@ -3,29 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Tesla 高德 3D 车机导航 HUD (官方 WebGL 3D 引擎 + 实时避堵)</title>
-
-  <!-- 1. 必须在加载高德 JS API 之前声明安全密钥 securityJsCode -->
-  <script type="text/javascript">
-    window._AMapSecurityConfig = {
-      securityJsCode: "3b6d598a57b6124946003258d8b922d4"
-    };
-  </script>
-  <!-- 2. 加载高德官方 WebGL 3D JS API 2.0 及核心导航插件 -->
-  <script src="https://webapi.amap.com/maps?v=2.0&key=b8348245131e01764a8beaf53be94de7&plugin=AMap.Driving,AMap.PlaceSearch,AMap.AutoComplete,AMap.MoveAnimation,AMap.Geocoder"></script>
-  <!-- 3. 加载 HLS.js 直播流解码器（让特斯拉 Chromium 浏览器挂 D 档也能原生播放 .m3u8 电视直播） -->
+  <title>Tesla Live TV Wall & 私人影院 (D档行车常亮版)</title>
+  <!-- HLS.js 流媒体硬件解码引擎 -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
-
   <style>
     :root {
-      --bg-glass: rgba(13, 18, 28, 0.88);
-      --bg-glass-light: rgba(25, 33, 48, 0.84);
-      --border-glass: rgba(255, 255, 255, 0.14);
+      --bg-main: #070a10;
+      --bg-panel: rgba(15, 20, 30, 0.92);
+      --bg-card: rgba(26, 34, 50, 0.72);
+      --border-glass: rgba(255, 255, 255, 0.12);
+      --accent-red: #ef4444;
       --accent-blue: #3b82f6;
       --accent-cyan: #06b6d4;
       --accent-green: #10b981;
-      --accent-red: #ef4444;
-      --accent-amber: #f59e0b;
       --text-main: #f8fafc;
       --text-sub: #94a3b8;
     }
@@ -43,2139 +33,1113 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #070b12;
+      background: var(--bg-main);
       color: var(--text-main);
     }
 
-    /* 高德官方 WebGL 3D 地图容器 */
-    #map {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      background: #090d16;
-    }
-
-    /* 隐藏高德底部默认 Logo 与版权小字，保持车机 HUD 纯净 */
-    .amap-logo, .amap-copyright {
-      display: none !important;
-    }
-
-    /* 车道级沉浸式 AR 引导光毯叠加层 */
-    #lane-ar-overlay {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      z-index: 450;
-      opacity: 0;
-      transition: opacity 0.4s ease;
+    /* 整体座舱布局：左侧可收起片单/频道抽屉 + 右侧满屏播放区 */
+    .app-shell {
       display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    body.lane-mode-on #lane-ar-overlay {
-      opacity: 1;
-    }
-
-    /* 特斯拉 3D 发光车标 */
-    .tesla-car-marker {
-      width: 68px;
-      height: 68px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 100vw;
+      height: 100vh;
       position: relative;
-      transform-origin: center center;
+      overflow: hidden;
     }
 
-    .tesla-car-pulse {
-      position: absolute;
-      width: 64px;
-      height: 64px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(59,130,246,0.55) 0%, rgba(59,130,246,0) 70%);
-      animation: pulseRing 2s infinite;
-    }
-
-    .tesla-car-beam {
-      position: absolute;
-      bottom: 50%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 90px;
-      height: 120px;
-      background: linear-gradient(to top, rgba(6, 182, 212, 0.52), rgba(6, 182, 212, 0));
-      clip-path: polygon(35% 100%, 65% 100%, 100% 0%, 0% 0%);
-      pointer-events: none;
-    }
-
-    @keyframes pulseRing {
-      0% { transform: scale(0.8); opacity: 0.9; }
-      100% { transform: scale(1.85); opacity: 0; }
-    }
-
-    /* 地图上的实体红绿灯与备选路线时间气泡 */
-    .map-tl-icon {
-      background: rgba(15, 23, 42, 0.92);
-      border: 1.5px solid #fbbf24;
-      border-radius: 10px;
-      padding: 2px 6px;
-      color: #fff;
-      font-size: 11px;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      white-space: nowrap;
-    }
-
-    .route-alt-badge {
-      background: rgba(15, 23, 42, 0.92);
-      border: 1.5px solid #94a3b8;
-      border-radius: 10px;
-      padding: 4px 9px;
-      color: #e2e8f0;
-      font-size: 12px;
-      font-weight: 800;
-      white-space: nowrap;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.65);
-      cursor: pointer;
-    }
-
-    .route-alt-badge.faster {
-      background: rgba(6, 95, 70, 0.96);
-      border-color: #34d399;
-      color: #ecfdf5;
-    }
-
-    /* 左上角：导航主卡 + 3条高德官方路线对比卡 + 搜索框 + 下拉联想 */
-    .hud-top-left {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      z-index: 1000;
+    /* 左侧边栏：频道墙与私人电影库 */
+    .sidebar {
+      width: 350px;
+      height: 100%;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-glass);
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      width: 405px;
-      max-width: calc(100vw - 40px);
-    }
-
-    .glass-card {
-      background: var(--bg-glass);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--border-glass);
-      border-radius: 20px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.52);
-    }
-
-    .nav-turn-card {
-      padding: 15px 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      border-left: 5px solid var(--accent-cyan);
-    }
-
-    .nav-turn-top {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .turn-icon-box {
-      width: 56px;
-      height: 56px;
-      border-radius: 16px;
-      background: rgba(6, 182, 212, 0.18);
-      border: 1px solid rgba(6, 182, 212, 0.4);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
+      z-index: 100;
+      transition: margin-left 0.3s cubic-bezier(0.22, 1, 0.36, 1);
       flex-shrink: 0;
     }
 
-    .turn-info {
-      flex: 1;
-      overflow: hidden;
+    body.cinema-pure .sidebar {
+      margin-left: -350px;
     }
 
-    .turn-distance {
-      font-size: 25px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #fff;
-      display: flex;
-      align-items: baseline;
-      gap: 6px;
-    }
-
-    .turn-distance span {
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--accent-cyan);
-    }
-
-    .turn-road {
-      font-size: 14px;
-      color: var(--text-sub);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-top: 2px;
-    }
-
-    /* 高德同款：路口多车道引导牌 */
-    .lane-guide-bar {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(180deg, #1e3a8a 0%, #172554 100%);
-      border: 1.5px solid rgba(96, 165, 250, 0.55);
-      border-radius: 13px;
-      padding: 6px 10px;
-    }
-
-    .lane-slot {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 3px 6px;
-      border-right: 1.5px dashed rgba(255, 255, 255, 0.3);
-      opacity: 0.42;
-      transition: all 0.25s;
-    }
-
-    .lane-slot:last-child { border-right: none; }
-
-    .lane-slot.recommended {
-      opacity: 1;
-      background: rgba(6, 182, 212, 0.28);
-      border-radius: 8px;
-      transform: scale(1.04);
-      box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
-    }
-
-    .lane-arrow {
-      font-size: 19px;
-      font-weight: 900;
-      color: #fff;
-      line-height: 1.1;
-    }
-
-    .lane-slot.recommended .lane-arrow { color: #38bdf8; }
-    .lane-label { font-size: 10px; color: #cbd5e1; margin-top: 2px; }
-
-    /* 高德官方 3 策略实时路线对比栏 */
-    .route-options-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      padding: 10px;
-    }
-
-    .route-opt-card {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1.5px solid rgba(255, 255, 255, 0.10);
-      border-radius: 14px;
-      padding: 9px 10px;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .route-opt-card.active {
-      background: linear-gradient(145deg, rgba(37, 99, 235, 0.38), rgba(6, 182, 212, 0.25));
-      border-color: #38bdf8;
-      box-shadow: 0 0 16px rgba(56, 189, 248, 0.28);
-    }
-
-    .route-opt-tag {
-      font-size: 11px;
-      font-weight: 700;
-      color: #38bdf8;
+    .brand-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border-glass);
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
 
-    .route-opt-time {
-      font-size: 17px;
-      font-weight: 900;
-      color: #fff;
-      margin-top: 1px;
-    }
-
-    .route-opt-meta {
-      font-size: 11px;
-      color: var(--text-sub);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .tmc-mini-bar {
-      height: 4px;
-      width: 100%;
-      border-radius: 99px;
-      overflow: hidden;
+    .brand-title {
       display: flex;
-      margin-top: 4px;
-      background: #10b981;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 0.3px;
     }
 
-    /* 动态避堵秒切弹窗 */
-    .reroute-alert-banner {
-      padding: 14px 16px;
-      border-radius: 18px;
-      background: linear-gradient(135deg, rgba(6, 78, 59, 0.96), rgba(15, 23, 42, 0.96));
-      border: 1.5px solid #10b981;
-      box-shadow: 0 12px 32px rgba(16, 185, 129, 0.38);
-      display: none;
+    .live-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent-red);
+      box-shadow: 0 0 12px var(--accent-red);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(0.85); opacity: 0.9; }
+    }
+
+    .clock-badge {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-sub);
+      font-variant-numeric: tabular-nums;
+      background: rgba(255,255,255,0.06);
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    /* 顶部一级分类切换 Tab */
+    .nav-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-glass);
+    }
+
+    .tab-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-sub);
+      padding: 10px 6px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+
+    .tab-btn.active {
+      background: linear-gradient(135deg, #2563eb, #06b6d4);
+      border-color: #67e8f9;
+      color: #fff;
+      box-shadow: 0 6px 18px rgba(6, 182, 212, 0.32);
+    }
+
+    /* 频道与电影滚动列表区 */
+    .media-list-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex;
       flex-direction: column;
       gap: 10px;
     }
+    .media-list-wrap::-webkit-scrollbar { width: 4px; }
+    .media-list-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 99px; }
 
-    .reroute-alert-banner.show { display: flex; }
-
-    .reroute-header {
+    .media-card {
+      background: var(--bg-card);
+      border: 1.5px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 13px 15px;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 14px;
-      font-weight: 800;
-      color: #34d399;
+      gap: 12px;
+      transition: all 0.18s;
     }
 
-    .reroute-desc { font-size: 13px; color: #e2e8f0; line-height: 1.45; }
-    .reroute-actions { display: flex; gap: 8px; }
-
-    .btn-reroute-yes {
-      flex: 1;
-      background: #10b981;
-      color: #052e16;
-      border: none;
-      border-radius: 10px;
-      padding: 9px 12px;
-      font-size: 13px;
-      font-weight: 800;
-      cursor: pointer;
+    .media-card:hover {
+      background: rgba(37, 99, 235, 0.22);
+      border-color: rgba(96, 165, 250, 0.4);
     }
 
-    .btn-reroute-no {
-      background: rgba(255,255,255,0.1);
-      color: #cbd5e1;
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 10px;
-      padding: 9px 12px;
-      font-size: 13px;
-      cursor: pointer;
+    .media-card.active {
+      background: linear-gradient(135deg, rgba(37, 99, 235, 0.38), rgba(6, 182, 212, 0.22));
+      border-color: #38bdf8;
+      box-shadow: 0 6px 20px rgba(6, 182, 212, 0.22);
     }
 
-    /* 搜索框与高德官方 POI 联想下拉列表 */
-    .search-wrapper {
-      position: relative;
-    }
-
-    .search-bar {
+    .media-card-left {
       display: flex;
       align-items: center;
-      padding: 9px 12px;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .media-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    .media-info {
+      overflow: hidden;
+    }
+
+    .media-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .media-sub {
+      font-size: 12px;
+      color: var(--text-sub);
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .media-badge {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: rgba(16, 185, 129, 0.18);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      white-space: nowrap;
+    }
+
+    .media-badge.vod {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border-color: rgba(59, 130, 246, 0.4);
+    }
+
+    /* 侧边栏底部：自定义添加电影/直播源入口 */
+    .sidebar-footer {
+      padding: 14px 16px;
+      border-top: 1px solid var(--border-glass);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: rgba(10, 14, 22, 0.9);
+    }
+
+    .btn-add-movie {
+      width: 100%;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px dashed rgba(56, 189, 248, 0.55);
+      background: rgba(6, 182, 212, 0.12);
+      color: #38bdf8;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       gap: 8px;
     }
 
-    .search-bar input {
+    .btn-add-movie:active { transform: scale(0.98); }
+
+    /* 右侧主舞台：单屏巨幕 + 四宫格直播墙 + 顶部/底部悬浮控制栏 */
+    .stage-main {
       flex: 1;
-      background: rgba(255, 255, 255, 0.08);
+      height: 100%;
+      position: relative;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 顶部悬浮控制条 */
+    .stage-topbar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .topbar-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    .pill-btn {
+      height: 46px;
+      padding: 0 16px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #fff;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    .pill-btn:active { transform: scale(0.95); }
+
+    .pill-btn.active {
+      background: linear-gradient(135deg, #2563eb, #06b6d4);
+      border-color: #67e8f9;
+    }
+
+    .pill-btn.unmute-warn {
+      background: linear-gradient(135deg, #dc2626, #ea580c);
+      border-color: #fca5a5;
+      animation: pulse 1.8s infinite;
+    }
+
+    .now-playing-pill {
+      padding: 0 18px;
+      height: 46px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.14);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    /* 单屏巨幕播放器容器 */
+    #singleStage {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+
+    #mainVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    #mainIframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: none;
+      background: #000;
+    }
+
+    /* 四宫格直播电视墙容器 (2x2 Grid) */
+    #gridWallStage {
+      width: 100%;
+      height: 100%;
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 6px;
+      padding: 6px;
+      background: #05080f;
+    }
+
+    .wall-cell {
+      position: relative;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+    }
+
+    .wall-cell.focused {
+      border-color: #38bdf8;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+
+    .wall-cell video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .wall-cell-label {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 800;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.15);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .wall-cell-expand {
+      position: absolute;
+      bottom: 10px;
+      right: 12px;
+      background: rgba(37, 99, 235, 0.88);
+      color: #fff;
+      border: none;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* 底部实时滚动快讯条 */
+    .bottom-ticker {
+      position: absolute;
+      bottom: 14px;
+      left: 16px;
+      right: 16px;
+      z-index: 60;
+      height: 44px;
+      background: rgba(12, 17, 28, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    body.hide-ticker .bottom-ticker {
+      display: none;
+    }
+
+    /* 添加电影 / 自定义源弹窗 */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(10px);
+      z-index: 500;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal-box {
+      width: 520px;
+      max-width: 100%;
+      background: #111827;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 22px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-field label {
+      font-size: 13px;
+      color: var(--text-sub);
+      font-weight: 600;
+    }
+
+    .form-field input {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 12px;
-      padding: 10px 13px;
+      padding: 12px 14px;
       color: #fff;
       font-size: 14px;
       outline: none;
     }
 
-    .search-bar input:focus { border-color: var(--accent-cyan); }
+    .form-field input:focus { border-color: #38bdf8; }
 
-    .btn-primary {
+    .btn-submit {
       background: linear-gradient(135deg, #2563eb, #06b6d4);
       color: #fff;
       border: none;
       border-radius: 12px;
-      padding: 10px 15px;
-      font-size: 14px;
-      font-weight: 600;
+      padding: 13px;
+      font-size: 15px;
+      font-weight: 800;
       cursor: pointer;
-      white-space: nowrap;
-    }
-
-    /* 高德 POI 实时搜索结果面板 */
-    .poi-suggest-list {
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      right: 0;
-      background: rgba(15, 21, 33, 0.96);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      border-radius: 16px;
-      max-height: 260px;
-      overflow-y: auto;
-      z-index: 2000;
-      display: none;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
-    }
-
-    .poi-suggest-list.open { display: block; }
-
-    .poi-suggest-item {
-      padding: 11px 15px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .poi-suggest-item:hover, .poi-suggest-item:active {
-      background: rgba(37, 99, 235, 0.32);
-    }
-
-    .poi-name { font-size: 14px; font-weight: 700; color: #f8fafc; }
-    .poi-addr { font-size: 11.5px; color: var(--text-sub); margin-top: 2px; }
-    .poi-tag { font-size: 11px; color: #38bdf8; font-weight: 700; white-space: nowrap; }
-
-    .quick-pois {
-      display: flex;
-      gap: 7px;
-      overflow-x: auto;
-      padding-bottom: 2px;
-    }
-    .quick-pois::-webkit-scrollbar { display: none; }
-
-    .poi-chip {
-      background: var(--bg-glass-light);
-      border: 1px solid var(--border-glass);
-      color: var(--text-main);
-      padding: 6px 12px;
-      border-radius: 999px;
-      font-size: 12.5px;
-      cursor: pointer;
-      white-space: nowrap;
-      backdrop-filter: blur(10px);
-    }
-
-    /* 顶部正中央：悬浮红绿灯读秒圆环 */
-    .hud-top-center {
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 10px 20px;
-      border-radius: 999px;
-      background: rgba(12, 16, 24, 0.90);
-      border: 1.5px solid rgba(255, 255, 255, 0.16);
-      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
-      backdrop-filter: blur(18px);
-    }
-
-    .tl-housing {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: #090d16;
-      padding: 6px 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.12);
-    }
-
-    .tl-bulb { width: 22px; height: 22px; border-radius: 50%; opacity: 0.22; transition: all 0.2s; }
-    .tl-bulb.red { background: #ef4444; }
-    .tl-bulb.yellow { background: #f59e0b; }
-    .tl-bulb.green { background: #10b981; }
-    .tl-bulb.active.red { opacity: 1; box-shadow: 0 0 16px #ef4444; }
-    .tl-bulb.active.yellow { opacity: 1; box-shadow: 0 0 16px #f59e0b; }
-    .tl-bulb.active.green { opacity: 1; box-shadow: 0 0 16px #10b981; }
-
-    .tl-countdown {
-      font-size: 28px;
-      font-weight: 900;
-      min-width: 44px;
-      text-align: center;
-      font-variant-numeric: tabular-nums;
-      color: #10b981;
-    }
-
-    .tl-meta {
-      display: flex;
-      flex-direction: column;
-      border-left: 1px solid rgba(255,255,255,0.12);
-      padding-left: 12px;
-    }
-
-    .tl-meta-title { font-size: 13px; font-weight: 700; color: #f8fafc; }
-    .tl-meta-sub { font-size: 11px; color: #38bdf8; }
-
-    /* 右上角：车速与仪表盘 HUD */
-    .hud-top-right {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .speed-card { padding: 14px 22px; display: flex; align-items: center; gap: 18px; }
-    .speed-main { text-align: center; min-width: 82px; }
-    .speed-value {
-      font-size: 52px;
-      font-weight: 900;
-      line-height: 1;
-      background: linear-gradient(180deg, #ffffff 30%, #93c5fd 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      font-variant-numeric: tabular-nums;
-    }
-    .speed-unit { font-size: 11px; color: var(--text-sub); letter-spacing: 1px; margin-top: 4px; }
-    .telemetry-grid {
-      display: grid;
-      grid-template-columns: repeat(2, auto);
-      gap: 8px 16px;
-      border-left: 1px solid var(--border-glass);
-      padding-left: 16px;
-    }
-    .tele-item { display: flex; flex-direction: column; }
-    .tele-label { font-size: 11px; color: var(--text-sub); }
-    .tele-val { font-size: 14px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; }
-
-    .speed-limit-sign {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      background: #fff;
-      border: 6px solid #ef4444;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      font-weight: 900;
-      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.35);
-      flex-shrink: 0;
-    }
-
-    /* 右下角大触控按钮栏 */
-    .hud-bottom-controls {
-      position: absolute;
-      bottom: 24px;
-      right: 20px;
-      z-index: 1000;
-      display: flex;
-      gap: 9px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .ctrl-btn {
-      height: 52px;
-      padding: 0 15px;
-      border-radius: 16px;
-      background: var(--bg-glass);
-      backdrop-filter: blur(16px);
-      border: 1px solid var(--border-glass);
-      color: var(--text-main);
-      font-size: 13.5px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      transition: all 0.15s;
-    }
-
-    .ctrl-btn:active { transform: scale(0.95); }
-    .ctrl-btn.active { background: rgba(37, 99, 235, 0.88); border-color: #60a5fa; color: #fff; }
-    .ctrl-btn.cyan-active {
-      background: linear-gradient(135deg, rgba(6, 182, 212, 0.9), rgba(37, 99, 235, 0.9));
-      border-color: #67e8f9;
-      color: #fff;
-    }
-    .ctrl-btn.emerald-btn {
-      background: linear-gradient(135deg, rgba(16, 185, 129, 0.88), rgba(5, 150, 105, 0.88));
-      border-color: #34d399;
-      color: #fff;
-    }
-    .ctrl-btn.warn { background: rgba(245, 158, 11, 0.88); border-color: #fbbf24; color: #fff; }
-
-    /* 左下角状态栏 */
-    .hud-bottom-left {
-      position: absolute;
-      bottom: 24px;
-      left: 20px;
-      z-index: 1000;
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 13px;
-    }
-
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--accent-green);
-      box-shadow: 0 0 10px var(--accent-green);
-    }
-
-    .status-dot.sim {
-      background: var(--accent-amber);
-      box-shadow: 0 0 10px var(--accent-amber);
     }
   </style>
 </head>
-<body class="lane-mode-on">
+<body>
 
-  <!-- 高德官方 WebGL 3D 矢量地图容器 -->
-  <div id="map"></div>
-
-  <!-- 特斯拉 FSD / 高德沉浸式 3D 车道级引导光毯叠加层 -->
-  <div id="lane-ar-overlay">
-    <svg width="560" height="460" viewBox="0 0 560 460" fill="none" style="transform: translateY(-20px);">
-      <defs>
-        <linearGradient id="carpetGrad" x1="280" y1="60" x2="280" y2="300" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.0"/>
-          <stop offset="35%" stop-color="#06b6d4" stop-opacity="0.32"/>
-          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.58"/>
-        </linearGradient>
-        <linearGradient id="laneLineGrad" x1="280" y1="50" x2="280" y2="330" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0"/>
-          <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.75"/>
-          <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.95"/>
-        </linearGradient>
-      </defs>
-      <line x1="215" y1="80" x2="70" y2="310" stroke="rgba(255,255,255,0.28)" stroke-width="2.5" stroke-dasharray="12 10" />
-      <line x1="345" y1="80" x2="490" y2="310" stroke="rgba(255,255,255,0.28)" stroke-width="2.5" stroke-dasharray="12 10" />
-      <polygon id="arCarpetPoly" points="252,75 308,75 375,275 185,275" fill="url(#carpetGrad)" />
-      <line id="arLeftEdge" x1="252" y1="75" x2="185" y2="275" stroke="url(#laneLineGrad)" stroke-width="3.5" />
-      <line id="arRightEdge" x1="308" y1="75" x2="375" y2="275" stroke="url(#laneLineGrad)" stroke-width="3.5" />
-      <path d="M280 120 L312 155 L294 155 L280 140 L266 155 L248 155 Z" fill="rgba(255,255,255,0.75)">
-        <animateTransform attributeName="transform" type="translate" from="0 65" to="0 -25" dur="1.1s" repeatCount="indefinite"/>
-      </path>
-      <path d="M280 175 L322 215 L300 215 L280 195 L260 215 L238 215 Z" fill="rgba(56,189,248,0.65)">
-        <animateTransform attributeName="transform" type="translate" from="0 55" to="0 -25" dur="1.1s" repeatCount="indefinite"/>
-      </path>
-    </svg>
-  </div>
-
-  <!-- 顶部正中央：悬浮红绿灯读秒圆环 + 高德官方引擎状态 -->
-  <div class="hud-top-center" id="tlWidget">
-    <div class="tl-housing">
-      <div class="tl-bulb red" id="bulbRed"></div>
-      <div class="tl-bulb yellow" id="bulbYellow"></div>
-      <div class="tl-bulb green active" id="bulbGreen"></div>
-      <div class="tl-countdown" id="tlSeconds">26</div>
-    </div>
-    <div class="tl-meta">
-      <div class="tl-meta-title" id="tlRoadTitle">高德 3D 矢量引擎已激活 · 实时TMC避堵</div>
-      <div class="tl-meta-sub" id="tlGreenWave">⚡ 官方 Key 已绑定 · 3策略并行算路 · 剩余 <span id="tlTotalCount">3</span> 灯</div>
-    </div>
-  </div>
-
-  <!-- 左上角：转向导航 + 车道级分道牌 + 高德 3 策略实时路线对比 + 搜索 -->
-  <div class="hud-top-left">
-    <!-- 动态避堵秒切横幅 -->
-    <div class="reroute-alert-banner" id="rerouteBanner">
-      <div class="reroute-header">
-        <span>⚡ 高德实时TMC预警：发现更快路线 (省 <span id="savedMinText">6</span> 分钟)</span>
-        <span id="autoSwitchCountdown" style="font-size:12px;color:#a7f3d0;">5s 后自动切换</span>
-      </div>
-      <div class="reroute-desc" id="rerouteReasonText">
-        高德路况监测到原路线前方出现红色拥堵段，已为您重算最快绕行路线。
-      </div>
-      <div class="reroute-actions">
-        <button class="btn-reroute-yes" onclick="confirmSwitchFasterRoute()">🚀 立即切换最快路线</button>
-        <button class="btn-reroute-no" onclick="dismissRerouteBanner()">保持原路线</button>
-      </div>
-    </div>
-
-    <!-- 转向 + 车道引导主卡 -->
-    <div class="glass-card nav-turn-card" id="navCard">
-      <div class="nav-turn-top">
-        <div class="turn-icon-box" id="turnIcon">⬆️</div>
-        <div class="turn-info">
-          <div class="turn-distance" id="turnDist">高德官方 3D 导航 <span>已授权</span></div>
-          <div class="turn-road" id="turnRoad">正在调用高德实时路况引擎规划最优路线...</div>
+  <div class="app-shell">
+    <!-- 左侧抽屉：频道列表 & 私人电影院片单 -->
+    <aside class="sidebar">
+      <div class="brand-header">
+        <div class="brand-title">
+          <div class="live-dot"></div>
+          <span>TESLA 直播墙 & 影院</span>
         </div>
+        <div class="clock-badge" id="clockText">22:35</div>
       </div>
 
-      <!-- 高德同款：路口多车道推荐分道牌 -->
-      <div class="lane-guide-bar" id="laneGuideBar">
-        <div class="lane-slot"><span class="lane-arrow">↰</span><span class="lane-label">左转</span></div>
-        <div class="lane-slot recommended"><span class="lane-arrow">↑</span><span class="lane-label">直行(推荐)</span></div>
-        <div class="lane-slot recommended"><span class="lane-arrow">↑</span><span class="lane-label">直行(推荐)</span></div>
-        <div class="lane-slot"><span class="lane-arrow">↱</span><span class="lane-label">右转</span></div>
-      </div>
-    </div>
-
-    <!-- 高德官方 3 大算路策略实时对比选择器 -->
-    <div class="glass-card route-options-grid" id="routeOptionsBox">
-      <div class="route-opt-card active" onclick="selectRouteByIndex(0)">
-        <div class="route-opt-tag"><span>⚡ 躲避拥堵</span><span>高德推荐</span></div>
-        <div class="route-opt-time" id="opt0Time">计算中...</div>
-        <div class="route-opt-meta" id="opt0Meta">实时路况最优</div>
-        <div class="tmc-mini-bar" id="opt0Bar">
-          <div style="width:80%;background:#10b981;"></div>
-          <div style="width:15%;background:#f59e0b;"></div>
-          <div style="width:5%;background:#ef4444;"></div>
-        </div>
-      </div>
-      <div class="route-opt-card" onclick="selectRouteByIndex(1)">
-        <div class="route-opt-tag"><span>🚀 最快速度</span><span id="opt1Diff">大路优先</span></div>
-        <div class="route-opt-time" id="opt1Time">计算中...</div>
-        <div class="route-opt-meta" id="opt1Meta">时间最短策略</div>
-        <div class="tmc-mini-bar" id="opt1Bar">
-          <div style="width:70%;background:#10b981;"></div>
-          <div style="width:20%;background:#f59e0b;"></div>
-          <div style="width:10%;background:#ef4444;"></div>
-        </div>
-      </div>
-      <div class="route-opt-card" onclick="selectRouteByIndex(2)">
-        <div class="route-opt-tag"><span>🛣️ 最短距离</span><span id="opt2Diff">里程更近</span></div>
-        <div class="route-opt-time" id="opt2Time">计算中...</div>
-        <div class="route-opt-meta" id="opt2Meta">距离最短策略</div>
-        <div class="tmc-mini-bar" id="opt2Bar">
-          <div style="width:65%;background:#10b981;"></div>
-          <div style="width:20%;background:#f59e0b;"></div>
-          <div style="width:15%;background:#ef4444;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 高德官方 POI 搜索框 + 实时联想下拉列表 -->
-    <div class="search-wrapper">
-      <div class="glass-card search-bar">
-        <input type="text" id="destInput" placeholder="搜全国任意地点（高德官方POI联想）" autocomplete="off" />
-        <button class="btn-primary" id="btnSearch">高德算路</button>
-      </div>
-      <div class="poi-suggest-list" id="poiSuggestList"></div>
-    </div>
-
-    <!-- 快捷周边按钮 -->
-    <div class="quick-pois">
-      <div class="poi-chip" onclick="quickSearch('特斯拉超级充电站')">⚡ 附近超充</div>
-      <div class="poi-chip" onclick="quickSearch('上海虹桥站')">🚄 虹桥火车站</div>
-      <div class="poi-chip" onclick="quickSearch('东方明珠')">🗼 东方明珠</div>
-      <div class="poi-chip" onclick="quickSearch('瑞幸咖啡')">☕ 瑞幸咖啡</div>
-    </div>
-  </div>
-
-  <!-- 右上角：特斯拉极客仪表 HUD -->
-  <div class="hud-top-right">
-    <div class="speed-limit-sign" id="speedLimit">80</div>
-    <div class="glass-card speed-card">
-      <div class="speed-main">
-        <div class="speed-value" id="speedVal">0</div>
-        <div class="speed-unit">KM/H</div>
-      </div>
-      <div class="telemetry-grid">
-        <div class="tele-item">
-          <span class="tele-label">高德引擎</span>
-          <span class="tele-val" style="color:#10b981;">WebGL 3D</span>
-        </div>
-        <div class="tele-item">
-          <span class="tele-label">推荐车道</span>
-          <span class="tele-val" id="recommendLaneText" style="color:#38bdf8;">中间2车道</span>
-        </div>
-        <div class="tele-item">
-          <span class="tele-label">剩余里程</span>
-          <span class="tele-val" id="remainDist">-- km</span>
-        </div>
-        <div class="tele-item">
-          <span class="tele-label">预计到达</span>
-          <span class="tele-val" id="etaVal">--:--</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 左下角：GPS 定位与高德安全密钥状态 -->
-  <div class="glass-card hud-bottom-left">
-    <div class="status-dot" id="gpsDot"></div>
-    <div>
-      <div id="gpsStatusText" style="font-weight:600;">高德官方 3D 引擎已就绪 (Key 已激活)</div>
-      <div id="coordText" style="font-size:11px; color:var(--text-sub);">3D楼宇建模 · 文字正向不倒置 · 实时TMC彩虹路况</div>
-    </div>
-  </div>
-
-  <!-- 右下角：大尺寸触控面板 -->
-  <div class="hud-bottom-controls">
-    <button class="ctrl-btn" style="background:linear-gradient(135deg,#dc2626,#ea580c);border-color:#f87171;color:#fff;" onclick="toggleLiveTvPanel('split')">
-      📺 在线直播/新闻 (D档可看)
-    </button>
-    <button class="ctrl-btn emerald-btn" onclick="triggerCongestionRerouteDemo()">
-      ⚡ 模拟突发拥堵改道
-    </button>
-    <button class="ctrl-btn active" id="btnVoicePack" onclick="openVoiceModal()">
-      🎙️ 语音包：台湾甜美
-    </button>
-    <button class="ctrl-btn cyan-active" id="btnLaneMode" onclick="toggleLaneMode()">
-      🛣️ 车道级光毯
-    </button>
-    <button class="ctrl-btn active" id="btnFollow" onclick="toggleFollow()">
-      🎯 锁定车标
-    </button>
-    <button class="ctrl-btn active" id="btn3D" onclick="toggle3DView()">
-      📐 3D车头朝上
-    </button>
-    <button class="ctrl-btn active" id="btnTraffic" onclick="toggleTraffic()">
-      🚦 实时路况
-    </button>
-    <button class="ctrl-btn active" id="btnTheme" onclick="toggleDarkTheme()">
-      🌙 极夜3D主题
-    </button>
-    <button class="ctrl-btn" id="btnSim" onclick="toggleSimulation()">
-      🏎️ 模拟试驾
-    </button>
-    <button class="ctrl-btn" onclick="launchTeslaFullscreen()">
-      🚀 车机全屏
-    </button>
-  </div>
-
-  <!-- 📺 车载在线直播 & 7×24 实时新闻子页面 (支持：悬浮小窗 PiP / 左导航右直播分屏 / 页内全屏子页面，挂D档绝不黑屏退出) -->
-  <div id="liveTvContainer" style="position:fixed;right:20px;top:110px;width:520px;height:calc(100vh - 205px);z-index:1600;display:none;flex-direction:column;gap:10px;transition:all 0.3s cubic-bezier(0.22,1,0.36,1);" class="glass-card">
-    <!-- 顶部栏：模式切换（悬浮窗 / 左右分屏 / 页内全屏子页面）+ 迷你导航抬头条 -->
-    <div style="padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(9,13,22,0.75);border-radius:20px 20px 0 0;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;animation:pulseRing 1.5s infinite;"></span>
-        <span style="font-size:15px;font-weight:800;color:#fff;">LIVE 车载直播厅 (D档行车常亮)</span>
-      </div>
-      <!-- 3种视图形态一键切换 -->
-      <div style="display:flex;gap:6px;">
-        <button class="ctrl-btn" style="height:34px;padding:0 10px;font-size:12px;" onclick="setLiveLayout('pip')" id="btnLayoutPip">🖼️ 悬浮小窗</button>
-        <button class="ctrl-btn active" style="height:34px;padding:0 10px;font-size:12px;" onclick="setLiveLayout('split')" id="btnLayoutSplit">🌓 导航+直播分屏</button>
-        <button class="ctrl-btn" style="height:34px;padding:0 10px;font-size:12px;" onclick="setLiveLayout('full')" id="btnLayoutFull">📺 子页面全屏</button>
-        <button class="ctrl-btn" style="height:34px;padding:0 10px;font-size:12px;background:rgba(239,68,68,0.3);border-color:#ef4444;" onclick="toggleLiveTvPanel('close')">✕ 关闭</button>
-      </div>
-    </div>
-
-    <!-- 视频播放器主体区域 -->
-    <div style="position:relative;flex:1;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:220px;">
-      <video id="teslaLiveVideo" playsinline autoplay muted controls style="width:100%;height:100%;object-fit:contain;background:#000;"></video>
-      <iframe id="teslaLiveIframe" style="width:100%;height:100%;border:none;display:none;" allow="autoplay; fullscreen"></iframe>
-
-      <!-- 顶部叠加：行车迷你导航提示条（即使切换到子页面全屏，也不会错过路口！） -->
-      <div style="position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;">
-        <div style="background:rgba(15,23,42,0.86);backdrop-filter:blur(10px);border:1px solid rgba(56,189,248,0.4);padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:700;color:#e2e8f0;">
-          🧭 实时领航：<span id="liveMiniNavText" style="color:#38bdf8;">同步高德 3D 导航中</span>
-        </div>
-        <button onclick="unmuteLiveVideo()" id="btnUnmuteLive" style="pointer-events:auto;background:rgba(239,68,68,0.9);color:#fff;border:none;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;">
-          🔇 点击开启直播原声
+      <!-- 3大板块切换 -->
+      <div class="nav-tabs">
+        <button class="tab-btn active" id="tabLive" onclick="switchCategory('live')">
+          📺 电视直播
+        </button>
+        <button class="tab-btn" id="tabMovies" onclick="switchCategory('movies')">
+          🎬 私人影院
+        </button>
+        <button class="tab-btn" id="tabBili" onclick="switchCategory('bili')">
+          🅱️ B站/综合
         </button>
       </div>
-    </div>
 
-    <!-- 频道快速切换栏（全部经过 EXT-X-MEDIA-SEQUENCE 秒级递增实测，100% 剔除缓存录播，纯正实时电视台直播！） -->
-    <div style="padding:0 14px;display:flex;gap:8px;overflow-x:auto;flex-shrink:0;" id="cnTvChannelBar">
-      <button class="poi-chip" style="background:rgba(37,99,235,0.55);border-color:#60a5fa;" onclick="switchLiveChannel('gd_tv', this)">🦁 广东卫视 (实时真直播)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('hb_tv', this)">🌟 河北卫视 (4K实时直播)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('gz_tv', this)">🗼 广州综合频道 (实时直播)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('lz_news', this)">📰 兰州新闻综合 (HD实时)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('hrb_news', this)">❄️ 哈尔滨新闻综合 (实时)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('hb_pub', this)">📡 河北公共新闻 (实时)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('hb_econ', this)">💹 河北经济生活 (实时)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('hb_city', this)">🏙️ 河北都市频道 (实时)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('hb_movie', this)">🎬 河北影视剧场 (实时)</button>
-      <button class="poi-chip" onclick="switchLiveChannel('xz_tv', this)">🏔️ 西藏卫视汉语台 (实时)</button>
-    </div>
+      <!-- 频道/片单列表容器 -->
+      <div class="media-list-wrap" id="mediaListContainer"></div>
 
-    <!-- 自定义直播源 (.m3u8) 或 B站直播房间号输入栏 -->
-    <div style="padding:0 14px;display:flex;gap:8px;flex-shrink:0;">
-      <input type="text" id="customStreamInput" placeholder="输入任意 .m3u8 直播源网址 或 B站直播间房号 (如 5440)" style="flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:8px 12px;color:#fff;font-size:12.5px;outline:none;" />
-      <button class="btn-primary" style="padding:8px 14px;font-size:12.5px;" onclick="playCustomStream()">▶️ 播放</button>
-    </div>
-
-    <!-- 📰 7×24 小时实时新闻快讯电报厅（支持D档语音播报最新快讯） -->
-    <div style="margin:0 14px 12px 14px;padding:10px 14px;background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:14px;display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:12px;font-weight:800;color:#38bdf8;">📰 7×24h 实时财经/科技快讯电报 (D档可听可读)</span>
-        <button onclick="readLatestNewsAloud()" style="background:rgba(16,185,129,0.22);border:1px solid #10b981;color:#34d399;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;cursor:pointer;">
-          🔊 语音播报此条新闻
+      <!-- 底部：随时添加新电影或自定义直播源 -->
+      <div class="sidebar-footer">
+        <button class="btn-add-movie" onclick="openAddModal()">
+          ➕ 添加想看的电影 / 直播源
         </button>
+        <div style="font-size:11.5px;color:var(--text-sub);text-align:center;">
+          💡 挂 D 档开车时请保持在浏览器内观看，画面常亮不退出
+        </div>
       </div>
-      <div id="liveNewsTickerText" style="font-size:13px;color:#f1f5f9;line-height:1.45;cursor:pointer;" onclick="nextNewsItem()">
-        【实时快讯】正在同步全球 7×24 小时实时科技与汽车资讯...
+    </aside>
+
+    <!-- 右侧主播放舞台 -->
+    <main class="stage-main">
+      <!-- 顶部悬浮控制栏 -->
+      <div class="stage-topbar">
+        <div class="topbar-group">
+          <button class="pill-btn" onclick="togglePureCinema()" id="btnToggleSidebar">
+            ◀ 收起列表 (巨幕模式)
+          </button>
+          <div class="now-playing-pill">
+            <span class="live-dot"></span>
+            <span id="nowPlayingTitle">广东卫视 (高清实时真直播)</span>
+          </div>
+        </div>
+
+        <div class="topbar-group">
+          <button class="pill-btn unmute-warn" id="btnSound" onclick="toggleMasterSound()">
+            🔇 点此开启声音
+          </button>
+          <button class="pill-btn active" id="btnModeSingle" onclick="setStageMode('single')">
+            🖥️ 单屏巨幕
+          </button>
+          <button class="pill-btn" id="btnModeWall" onclick="setStageMode('wall')">
+            🎛️ 四宫格电视墙
+          </button>
+          <button class="pill-btn" onclick="toggleTicker()">
+            📰 快讯条
+          </button>
+          <button class="pill-btn" onclick="launchTeslaTheaterFullscreen()" title="仅限P档驻车时使用">
+            🚀 P档真全屏
+          </button>
+        </div>
       </div>
-    </div>
+
+      <!-- 模式 1：单屏高清巨幕播放器 -->
+      <div id="singleStage">
+        <video id="mainVideo" playsinline autoplay muted controls></video>
+        <iframe id="mainIframe" allow="autoplay; fullscreen"></iframe>
+      </div>
+
+      <!-- 模式 2：四宫格实时电视监控墙 (同时看 4 个国内台) -->
+      <div id="gridWallStage">
+        <div class="wall-cell focused" onclick="focusWallCell(0)" ondblclick="expandWallCellToSingle(0)">
+          <video id="wallVid0" playsinline autoplay muted></video>
+          <div class="wall-cell-label"><span class="live-dot"></span> 1. 广东卫视 (实时)</div>
+          <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(0)">🔍 全屏看此台</button>
+        </div>
+        <div class="wall-cell" onclick="focusWallCell(1)" ondblclick="expandWallCellToSingle(1)">
+          <video id="wallVid1" playsinline autoplay muted></video>
+          <div class="wall-cell-label"><span class="live-dot"></span> 2. 河北卫视 (4K实时)</div>
+          <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(1)">🔍 全屏看此台</button>
+        </div>
+        <div class="wall-cell" onclick="focusWallCell(2)" ondblclick="expandWallCellToSingle(2)">
+          <video id="wallVid2" playsinline autoplay muted></video>
+          <div class="wall-cell-label"><span class="live-dot"></span> 3. 广州综合频道 (实时)</div>
+          <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(2)">🔍 全屏看此台</button>
+        </div>
+        <div class="wall-cell" onclick="focusWallCell(3)" ondblclick="expandWallCellToSingle(3)">
+          <video id="wallVid3" playsinline autoplay muted></video>
+          <div class="wall-cell-label"><span class="live-dot"></span> 4. 兰州新闻综合 (HD)</div>
+          <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(3)">🔍 全屏看此台</button>
+        </div>
+      </div>
+
+      <!-- 底部电视台同款实时新闻滚动条 -->
+      <div class="bottom-ticker">
+        <div style="display:flex;align-items:center;gap:10px;overflow:hidden;">
+          <span style="background:#ef4444;color:#fff;font-size:11px;font-weight:900;padding:3px 8px;border-radius:6px;white-space:nowrap;">实时快讯</span>
+          <span id="tickerText" style="font-size:13.5px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            欢迎使用特斯拉车载直播墙与私人影院 · 挂入 D 档行驶时画面保持常亮不退出 · 点击左上角「收起列表」可享 100% 纯享巨幕。
+          </span>
+        </div>
+        <span style="font-size:12px;color:#38bdf8;white-space:nowrap;cursor:pointer;font-weight:700;" onclick="nextTicker()">下一条 ▸</span>
+      </div>
+    </main>
   </div>
 
-  <!-- 语音包切换中心弹窗 -->
-  <div id="voiceModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.68);backdrop-filter:blur(8px);z-index:2500;display:none;align-items:center;justify-content:center;padding:20px;">
-    <div class="glass-card" style="width:540px;max-width:100%;padding:24px;display:flex;flex-direction:column;gap:14px;">
+  <!-- 弹窗：添加想看的电影 / 剧集 / 直播源 -->
+  <div class="modal-backdrop" id="addModal">
+    <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:19px;font-weight:800;">🎙️ 特斯拉车机导航语音包中心</span>
-        <button class="ctrl-btn" style="height:36px;padding:0 12px;" onclick="closeVoiceModal()">✕</button>
+        <span style="font-size:19px;font-weight:900;">➕ 添加电影 / 剧集 / 直播源</span>
+        <button class="pill-btn" style="height:34px;padding:0 12px;" onclick="closeAddModal()">✕</button>
       </div>
-      <div style="font-size:13px;color:var(--text-sub);">
-        点击下方任意语音包即可切换<strong>专属音色 + 导航台词性格</strong>，并自动播放试听语音：
+      <div style="font-size:13px;color:var(--text-sub);line-height:1.5;">
+        支持添加任意 <code>.mp4</code> 电影直链、<code>.m3u8</code> 影视切片源、或 B站 <code>BV号 / 直播间房号</code>，添加后自动保存在您的私人影院片单中：
       </div>
-
-      <!-- 5大预设性格语音包 -->
-      <div id="voicePresetList" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div class="route-opt-card active" data-pack="taiwan" onclick="selectVoicePack('taiwan')" style="padding:12px;">
-          <div class="route-opt-tag"><span>🍓 台湾甜美御姐</span><span>推荐</span></div>
-          <div style="font-size:14px;font-weight:700;margin-top:4px;color:#fff;">温柔台湾腔 + 贴心尾音</div>
-          <div style="font-size:11px;color:var(--text-sub);margin-top:2px;">“前方准备左转啰，小心慢行喔～”</div>
-        </div>
-        <div class="route-opt-card" data-pack="jarvis" onclick="selectVoicePack('jarvis')" style="padding:12px;">
-          <div class="route-opt-tag"><span>🤖 钢铁侠贾维斯</span><span>科幻</span></div>
-          <div style="font-size:14px;font-weight:700;margin-top:4px;color:#fff;">机甲战术管家风格</div>
-          <div style="font-size:11px;color:var(--text-sub);margin-top:2px;">“先生，已为您切入最优战术航线。”</div>
-        </div>
-        <div class="route-opt-card" data-pack="rally" onclick="selectVoicePack('rally')" style="padding:12px;">
-          <div class="route-opt-tag"><span>🏎️ 狂暴拉力领航员</span><span>热血</span></div>
-          <div style="font-size:14px;font-weight:700;margin-top:4px;color:#fff;">WRC 赛道高频路书口吻</div>
-          <div style="font-size:11px;color:var(--text-sub);margin-top:2px;">“注意！前方切左道！全速推进！”</div>
-        </div>
-        <div class="route-opt-card" data-pack="cantonese" onclick="selectVoicePack('cantonese')" style="padding:12px;">
-          <div class="route-opt-tag"><span>🍵 粤语港风领航</span><span>地道</span></div>
-          <div style="font-size:14px;font-weight:700;margin-top:4px;color:#fff;">纯正粤语发音播报</div>
-          <div style="font-size:11px;color:var(--text-sub);margin-top:2px;">“前方塞车呀，同你转条快线啦！”</div>
-        </div>
-        <div class="route-opt-card" data-pack="classic" onclick="selectVoicePack('classic')" style="padding:12px;grid-column:span 2;">
-          <div class="route-opt-tag"><span>👩 高德经典沉稳女声</span><span>标准</span></div>
-          <div style="font-size:14px;font-weight:700;margin-top:4px;color:#fff;">干脆利落的标准普通话导航</div>
-        </div>
+      <div class="form-field">
+        <label>🎬 影片 / 频道名称</label>
+        <input type="text" id="newMediaTitle" placeholder="例如：《星际穿越》4K / 狂飙 第1集 / 凤凰卫视" />
       </div>
-
-      <!-- 底层音源精细自选 -->
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
-        <label style="font-size:12px;color:var(--text-sub);">🔧 高级：手动指定设备底层发音人 (自动匹配可不改)</label>
-        <select id="systemVoiceSelect" onchange="onManualVoiceChange()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:10px;padding:10px;color:#fff;font-size:13px;">
-          <option value="">自动匹配当前语音包最佳音色</option>
-        </select>
+      <div class="form-field">
+        <label>🔗 视频流地址 (.mp4 / .m3u8 / B站BV号 / 直播房号)</label>
+        <input type="text" id="newMediaUrl" placeholder="粘贴 https://...mp4 或 .m3u8 链接，或输入 BV1xx411c7mD" />
       </div>
-
-      <div style="display:flex;gap:10px;margin-top:4px;">
-        <button class="btn-primary" style="flex:1;" onclick="testCurrentVoice()">🔊 立即试听当前声音</button>
-        <button class="ctrl-btn active" id="btnMuteToggle" onclick="toggleVoiceMute()" style="height:42px;">🔊 播报开启中</button>
+      <div style="display:flex;gap:10px;margin-top:6px;">
+        <button class="btn-submit" style="flex:1;" onclick="saveCustomMedia('movies')">💾 存入【私人影院】并立即播放</button>
+        <button class="btn-submit" style="background:rgba(255,255,255,0.12);font-size:13px;" onclick="saveCustomMedia('live')">存入【直播】</button>
       </div>
     </div>
   </div>
 
   <script>
     /********************************************************************
-     * 1. 核心算法：WGS-84 (特斯拉车机原始GPS) -> GCJ-02 (高德火星坐标系)
+     * 1. 内置节目单配置区（后期想加任何电影，直接往 MOVIE_CHANNELS 数组里加一行即可！）
      ********************************************************************/
-    const PI = 3.1415926535897932384626;
-    const A = 6378245.0;
-    const EE = 0.00669342162296594323;
-
-    function transformLat(x, y) {
-      let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
-      ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
-      ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
-      ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
-      return ret;
-    }
-
-    function transformLon(x, y) {
-      let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
-      ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
-      ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
-      ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
-      return ret;
-    }
-
-    function wgs84ToGcj02(lng, lat) {
-      if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return [lng, lat];
-      let dLat = transformLat(lng - 105.0, lat - 35.0);
-      let dLng = transformLon(lng - 105.0, lat - 35.0);
-      const radLat = lat / 180.0 * PI;
-      let magic = Math.sin(radLat);
-      magic = 1 - EE * magic * magic;
-      const sqrtMagic = Math.sqrt(magic);
-      dLat = (dLat * 180.0) / ((A * (1 - EE)) / (magic * sqrtMagic) * PI);
-      dLng = (dLng * 180.0) / (A / sqrtMagic * Math.cos(radLat) * PI);
-      return [lng + dLng, lat + dLat];
-    }
-
-    function calcBearing(lat1, lng1, lat2, lng2) {
-      const toRad = d => d * Math.PI / 180;
-      const toDeg = r => r * 180 / Math.PI;
-      const dLon = toRad(lng2 - lng1);
-      const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-      const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-                Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-      return (toDeg(Math.atan2(y, x)) + 360) % 360;
-    }
-
-    function calcDistance(lat1, lng1, lat2, lng2) {
-      const R = 6371000;
-      const toRad = d => d * Math.PI / 180;
-      const dLat = toRad(lat2 - lat1);
-      const dLng = toRad(lng2 - lng1);
-      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
-      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    /********************************************************************
-     * 2. 初始化高德官方 WebGL 3D 矢量地图 (AMap 2.0)
-     * 优势：地图 360° 随车头旋转时，所有中文路名、POI 文字始终保持水平正向！
-     * 且自带 3D 城市楼宇白模与官方极夜深蓝车机皮肤
-     ********************************************************************/
-    let currentGcj = [121.499809, 31.239666]; // 默认上海陆家嘴，获取真实GPS后自动瞬移
-    let currentHeading = 0;
-    let currentSpeedKmh = 0;
-    let isFollow = true;
-    let is3DHeadingUp = true;
-    let isLaneMode = true;
-    let isTrafficOn = true;
-    let isDarkTheme = true;
-    let isVoiceOn = true;
-    let simTimer = null;
-    let simIdx = 0;
-
-    const map = new AMap.Map('map', {
-      viewMode: '3D',
-      pitch: 58,
-      rotation: 0,
-      zoom: 17.8,
-      center: currentGcj,
-      mapStyle: 'amap://styles/darkblue',
-      showBuildingBlock: true,
-      buildingAnimation: true,
-      skyColor: '#060b16'
-    });
-
-    // 高德官方实时路况图层（自动刷新）
-    const trafficLayer = new AMap.TileLayer.Traffic({
-      zIndex: 10,
-      autoRefresh: true,
-      interval: 60
-    });
-    map.add(trafficLayer);
-
-    // 特斯拉 3D 发光车标 Marker
-    const carMarker = new AMap.Marker({
-      position: currentGcj,
-      offset: new AMap.Pixel(-34, -34),
-      zIndex: 200,
-      content: `
-        <div class="tesla-car-marker" id="carMarkerInner">
-          <div class="tesla-car-pulse"></div>
-          <div class="tesla-car-beam"></div>
-          <svg width="44" height="44" viewBox="0 0 64 64" fill="none">
-            <circle cx="32" cy="32" r="24" fill="#0f172a" stroke="#38bdf8" stroke-width="3"/>
-            <path d="M32 11L46 46L32 39L18 46L32 11Z" fill="url(#carGrad)"/>
-            <defs>
-              <linearGradient id="carGrad" x1="32" y1="11" x2="32" y2="46" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#ffffff"/>
-                <stop offset="1" stop-color="#06b6d4"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-      `
-    });
-    map.add(carMarker);
-
-    map.on('dragstart', () => {
-      if (isFollow) {
-        isFollow = false;
-        document.getElementById('btnFollow').classList.remove('active');
-      }
-    });
-
-    /********************************************************************
-     * 3. 高德官方 3 策略并行算路引擎 (AMap.Driving)
-     * 同时调用高德：
-     *   策略0: REAL_TRAFFIC (躲避拥堵·高德推荐)
-     *   策略1: LEAST_TIME (时间最短·高速大路优先)
-     *   策略2: LEAST_DISTANCE (距离最短·经济备选)
-     * 并解析官方返回的实时 TMC 拥堵切片 (畅通/缓行/拥堵/严重拥堵) 绘出真彩虹路线
-     ********************************************************************/
-    let allCandidateRoutes = [];
-    let activeRouteIdx = 0;
-    let routeOverlays = [];
-    let routeSteps = [];
-    let routeCoordsGcj = [];
-    let currentDestLngLat = [121.5255, 31.2315];
-    let currentDestName = '特斯拉超级充电站';
-    let autoSwitchTimer = null;
-    let pendingFasterRouteIdx = 1;
-
-    /********************************************************************
-     * 3.1 多语音包引擎：支持 5 大特色导航人设 + 底层音色自动优选 + 台词风格改写
-     ********************************************************************/
-    let currentVoicePack = localStorage.getItem('TESLA_VOICE_PACK') || 'taiwan';
-    let manualVoiceURI = '';
-    let availableVoices = [];
-
-    const VOICE_PACK_CONFIG = {
-      taiwan: {
-        label: '🍓 台湾甜美',
-        langPref: ['zh-TW', 'Meijia', 'Hsiao', 'zh_TW'],
-        pitch: 1.15,
-        rate: 1.02,
-        sample: '哈啰车主你好呀，台湾甜美导航语音已经为您开启啰，今天想开去哪里兜风呢？',
-        styleFn: (txt) => txt.replace(/。/g, '啰～').replace(/请/g, '麻烦请') + '喔～'
-      },
-      jarvis: {
-        label: '🤖 贾维斯',
-        langPref: ['Eddy', 'Reed', 'Yunxi', 'zh-CN'],
-        pitch: 0.82,
-        rate: 1.08,
-        sample: '先生，贾维斯车载战术导航系统已上线，高德三维遥测与实时避堵雷达运行正常。',
-        styleFn: (txt) => `先生，战术报告：${txt}`
-      },
-      rally: {
-        label: '🏎️ 拉力领航员',
-        langPref: ['zh-CN', 'Tingting'],
-        pitch: 1.05,
-        rate: 1.28,
-        sample: '五、四、三、二、一，发车！前方保持全油门直行，注意随时切入最快超车路线！',
-        styleFn: (txt) => `注意！${txt}！保持节奏全速推进！`
-      },
-      cantonese: {
-        label: '🍵 粤语港风',
-        langPref: ['zh-HK', 'Sin-ji', 'Sinji', 'yue'],
-        pitch: 1.05,
-        rate: 1.03,
-        sample: '哈喽车主，粤语导航已经同你开启咗啦，一路顺风呀！',
-        styleFn: (txt) => txt.replace(/为您/g, '同你').replace(/分钟/g, '分钟左右啦')
-      },
-      classic: {
-        label: '👩 高德经典',
-        langPref: ['Tingting', 'Xiaoxiao', 'zh-CN'],
-        pitch: 1.0,
-        rate: 1.05,
-        sample: '高德经典标准导航语音已开启，祝您一路平安。',
-        styleFn: (txt) => txt
-      }
-    };
-
-    function loadSystemVoices() {
-      if (!('speechSynthesis' in window)) return;
-      availableVoices = window.speechSynthesis.getVoices();
-      const sel = document.getElementById('systemVoiceSelect');
-      if (!sel || !availableVoices.length) return;
-
-      const zhVoices = availableVoices.filter(v =>
-        v.lang.includes('zh') || v.lang.includes('cmn') || v.lang.includes('yue')
-      );
-      const list = zhVoices.length ? zhVoices : availableVoices;
-
-      sel.innerHTML = `<option value="">✨ 自动匹配当前语音包最佳音色</option>` +
-        list.map(v => `<option value="${v.voiceURI}">${v.name} (${v.lang})</option>`).join('');
-    }
-
-    if ('speechSynthesis' in window) {
-      loadSystemVoices();
-      window.speechSynthesis.onvoiceschanged = loadSystemVoices;
-    }
-
-    function pickBestVoice(packKey) {
-      if (!availableVoices.length) availableVoices = window.speechSynthesis.getVoices();
-      if (manualVoiceURI) {
-        const found = availableVoices.find(v => v.voiceURI === manualVoiceURI);
-        if (found) return found;
-      }
-      const cfg = VOICE_PACK_CONFIG[packKey] || VOICE_PACK_CONFIG.classic;
-      for (const kw of cfg.langPref) {
-        const match = availableVoices.find(v =>
-          v.name.toLowerCase().includes(kw.toLowerCase()) ||
-          v.lang.toLowerCase().includes(kw.toLowerCase())
-        );
-        if (match) return match;
-      }
-      return availableVoices.find(v => v.lang.includes('zh')) || availableVoices[0];
-    }
-
-    function speakText(rawText, isRawSample = false) {
-      if (!isVoiceOn || !('speechSynthesis' in window)) return;
-      window.speechSynthesis.cancel();
-
-      const cfg = VOICE_PACK_CONFIG[currentVoicePack] || VOICE_PACK_CONFIG.classic;
-      const finalText = isRawSample ? rawText : cfg.styleFn(rawText);
-      const utter = new SpeechSynthesisUtterance(finalText);
-
-      const chosenVoice = pickBestVoice(currentVoicePack);
-      if (chosenVoice) {
-        utter.voice = chosenVoice;
-        utter.lang = chosenVoice.lang;
-      } else {
-        utter.lang = currentVoicePack === 'taiwan' ? 'zh-TW' : (currentVoicePack === 'cantonese' ? 'zh-HK' : 'zh-CN');
-      }
-
-      utter.pitch = cfg.pitch;
-      utter.rate = cfg.rate;
-      window.speechSynthesis.speak(utter);
-    }
-
-    function openVoiceModal() {
-      loadSystemVoices();
-      updateVoicePackUI();
-      document.getElementById('voiceModal').style.display = 'flex';
-    }
-
-    function closeVoiceModal() {
-      document.getElementById('voiceModal').style.display = 'none';
-    }
-
-    function selectVoicePack(packKey) {
-      currentVoicePack = packKey;
-      manualVoiceURI = '';
-      document.getElementById('systemVoiceSelect').value = '';
-      localStorage.setItem('TESLA_VOICE_PACK', packKey);
-      updateVoicePackUI();
-      const cfg = VOICE_PACK_CONFIG[packKey];
-      speakText(cfg.sample, true);
-    }
-
-    function onManualVoiceChange() {
-      manualVoiceURI = document.getElementById('systemVoiceSelect').value;
-      testCurrentVoice();
-    }
-
-    function testCurrentVoice() {
-      const cfg = VOICE_PACK_CONFIG[currentVoicePack] || VOICE_PACK_CONFIG.classic;
-      speakText(cfg.sample, true);
-    }
-
-    function toggleVoiceMute() {
-      isVoiceOn = !isVoiceOn;
-      const btn = document.getElementById('btnMuteToggle');
-      btn.classList.toggle('active', isVoiceOn);
-      btn.textContent = isVoiceOn ? '🔊 播报开启中' : '🔇 已静音';
-      if (isVoiceOn) testCurrentVoice();
-      else window.speechSynthesis.cancel();
-    }
-
-    function updateVoicePackUI() {
-      const cfg = VOICE_PACK_CONFIG[currentVoicePack] || VOICE_PACK_CONFIG.classic;
-      const btn = document.getElementById('btnVoicePack');
-      if (btn) btn.textContent = `🎙️ 语音包：${cfg.label.replace(/^[^\s]+\s/, '')}`;
-      document.querySelectorAll('#voicePresetList .route-opt-card').forEach(el => {
-        el.classList.toggle('active', el.getAttribute('data-pack') === currentVoicePack);
-      });
-    }
-
-    window.addEventListener('DOMContentLoaded', updateVoicePackUI);
-
-    function runDrivingSearch(policy, origin, dest) {
-      return new Promise((resolve) => {
-        const drv = new AMap.Driving({
-          policy,
-          extensions: 'all',
-          autoFitView: false
-        });
-        drv.search(origin, dest, (status, result) => {
-          if (status === 'complete' && result?.routes?.length) {
-            resolve(result.routes[0]);
-          } else {
-            resolve(null);
-          }
-        });
-      });
-    }
-
-    async function planOfficialAmapRoutes(originLngLat, destLngLat, destName) {
-      currentDestLngLat = destLngLat;
-      currentDestName = destName;
-      document.getElementById('turnDist').innerHTML = `高德实时算路 <span>${destName}</span>`;
-      document.getElementById('turnRoad').textContent = '正在请求高德 REAL_TRAFFIC 躲避拥堵多策略引擎...';
-
-      // 并行请求高德 3 大核心算路策略
-      const [rTraffic, rFast, rShort] = await Promise.all([
-        runDrivingSearch(AMap.DrivingPolicy.REAL_TRAFFIC, originLngLat, destLngLat),
-        runDrivingSearch(AMap.DrivingPolicy.LEAST_TIME, originLngLat, destLngLat),
-        runDrivingSearch(AMap.DrivingPolicy.LEAST_DISTANCE, originLngLat, destLngLat)
-      ]);
-
-      const rawList = [
-        { route: rTraffic, tag: '⚡ 躲避拥堵' },
-        { route: rFast || rTraffic, tag: '🚀 速度最快' },
-        { route: rShort || rTraffic, tag: '🛣️ 距离最短' }
-      ].filter(item => item.route);
-
-      if (!rawList.length) {
-        document.getElementById('turnRoad').textContent = '未找到可行驾车路线，请尝试其他地点';
-        return;
-      }
-
-      allCandidateRoutes = rawList.map((item, idx) => {
-        const rt = item.route;
-        const coordsGcj = [];
-        const tmcSegments = [];
-        const steps = [];
-
-        (rt.steps || []).forEach(st => {
-          if (st.path && st.path.length) {
-            st.path.forEach(p => coordsGcj.push([p.lng, p.lat]));
-          }
-          // 提取高德官方真实 TMC 拥堵路况切片 (畅通 / 缓行 / 拥堵 / 严重拥堵)
-          if (st.tmcs && st.tmcs.length) {
-            st.tmcs.forEach(tmc => {
-              if (tmc.path && tmc.path.length > 1) {
-                tmcSegments.push({
-                  status: tmc.status || '畅通',
-                  distance: tmc.distance || 50,
-                  path: tmc.path.map(p => [p.lng, p.lat])
-                });
-              }
-            });
-          }
-          const actionStr = st.action || st.instruction || '';
-          const mType = actionStr.includes('左') ? 'left' : (actionStr.includes('右') ? 'right' : 'straight');
-          const startPt = st.start_location || st.path?.[0];
-          if (startPt) {
-            steps.push({
-              lng: startPt.lng,
-              lat: startPt.lat,
-              name: st.road || destName,
-              instruction: st.instruction || `沿${st.road || '当前道路'}行驶`,
-              type: mType,
-              distance: st.distance || 100
-            });
-          }
-        });
-
-        const distKm = (rt.distance / 1000).toFixed(1);
-        // 若3个策略返回相同时间，给备选路线加上微小差异化呈现以便直观对比
-        const baseMin = Math.max(1, Math.round(rt.time / 60));
-        const totalMin = idx === 0 ? baseMin : (baseMin === Math.round(rawList[0].route.time / 60) ? baseMin + idx * 2 : baseMin);
-        const lightCount = Math.max(2, Math.round(steps.length * 0.65));
-
-        return {
-          idx,
-          tag: item.tag,
-          coordsGcj,
-          tmcSegments,
-          steps,
-          distKm,
-          totalMin,
-          lightCount,
-          tolls: rt.tolls || 0,
-          congested: false
-        };
-      });
-
-      selectRouteByIndex(0, true);
-    }
-
-    // 激活指定路线，并在高德 3D 地图上绘制真 TMC 彩虹路况线 + 备选对比路线
-    function selectRouteByIndex(idx, isInitial = false) {
-      if (!allCandidateRoutes[idx]) return;
-      activeRouteIdx = idx;
-      simIdx = 0;
-
-      // 清理旧路线覆盖物
-      if (routeOverlays.length) {
-        map.remove(routeOverlays);
-        routeOverlays = [];
-      }
-
-      const activeCand = allCandidateRoutes[activeRouteIdx];
-      const activeMin = activeCand.totalMin;
-
-      // 更新左上角 3 个方案对比卡片
-      allCandidateRoutes.forEach((cand, i) => {
-        const card = document.querySelectorAll('.route-opt-card')[i];
-        if (!card) return;
-        card.classList.toggle('active', i === activeRouteIdx);
-        document.getElementById(`opt${i}Time`).textContent = `${cand.totalMin} 分钟`;
-        document.getElementById(`opt${i}Meta`).textContent = `${cand.distKm}km · 🚦${cand.lightCount}灯`;
-        if (i > 0) {
-          const diff = cand.totalMin - allCandidateRoutes[0].totalMin;
-          const diffEl = document.getElementById(`opt${i}Diff`);
-          if (diffEl) {
-            diffEl.textContent = diff > 0 ? `慢 ${diff}分` : (diff < 0 ? `快 ${Math.abs(diff)}分` : '备选');
-            diffEl.style.color = diff < 0 ? '#34d399' : '#94a3b8';
-          }
-        }
-      });
-
-      // 1) 绘制未选中的备选路线（半透明灰蓝对比线 + 可点击时间气泡）
-      allCandidateRoutes.forEach((cand, i) => {
-        if (i === activeRouteIdx || !cand.coordsGcj.length) return;
-        const altPoly = new AMap.Polyline({
-          path: cand.coordsGcj,
-          strokeColor: '#64748b',
-          strokeWeight: 8,
-          strokeOpacity: 0.68,
-          strokeStyle: 'dashed',
-          zIndex: 40,
-          cursor: 'pointer'
-        });
-        altPoly.on('click', () => selectRouteByIndex(i));
-        map.add(altPoly);
-        routeOverlays.push(altPoly);
-
-        const midPt = cand.coordsGcj[Math.floor((cand.coordsGcj.length * (i === 1 ? 0.45 : 0.6)))] || cand.coordsGcj[0];
-        if (midPt) {
-          const diff = cand.totalMin - activeMin;
-          const badgeHtml = diff < 0
-            ? `<div class="route-alt-badge faster" onclick="selectRouteByIndex(${i})">⚡ 备选快 ${Math.abs(diff)} 分钟</div>`
-            : `<div class="route-alt-badge" onclick="selectRouteByIndex(${i})">${cand.tag} · ${cand.totalMin}分</div>`;
-          const badgeMarker = new AMap.Marker({
-            position: midPt,
-            offset: new AMap.Pixel(-55, -14),
-            zIndex: 90,
-            content: badgeHtml
-          });
-          map.add(badgeMarker);
-          routeOverlays.push(badgeMarker);
-        }
-      });
-
-      // 2) 绘制当前选中主路线的发光底座
-      routeCoordsGcj = activeCand.coordsGcj;
-      routeSteps = [...activeCand.steps];
-
-      const glowLine = new AMap.Polyline({
-        path: routeCoordsGcj,
-        strokeColor: '#1d4ed8',
-        strokeWeight: 16,
-        strokeOpacity: 0.45,
-        lineJoin: 'round',
-        zIndex: 55
-      });
-      map.add(glowLine);
-      routeOverlays.push(glowLine);
-
-      // 3) 根据高德官方真实 TMC 状态（畅通/缓行/拥堵/严重拥堵）绘制彩虹路线
-      const tmcColorMap = {
-        '畅通': '#10b981',
-        '缓行': '#f59e0b',
-        '拥堵': '#ef4444',
-        '严重拥堵': '#991b1b',
-        '未知': '#06b6d4'
-      };
-
-      if (activeCand.congested && routeCoordsGcj.length > 6) {
-        // 当触发“前方突发拥堵”时，将前方路段染成鲜红拥堵告警色
-        const p1 = Math.floor(routeCoordsGcj.length * 0.25);
-        const p2 = Math.floor(routeCoordsGcj.length * 0.65);
-        const segs = [
-          { path: routeCoordsGcj.slice(0, p1 + 1), color: '#10b981' },
-          { path: routeCoordsGcj.slice(p1, p2 + 1), color: '#ef4444' },
-          { path: routeCoordsGcj.slice(p2), color: '#10b981' }
-        ];
-        segs.forEach(sg => {
-          const pl = new AMap.Polyline({
-            path: sg.path,
-            strokeColor: sg.color,
-            strokeWeight: 10,
-            strokeOpacity: 0.98,
-            lineJoin: 'round',
-            showDir: true,
-            zIndex: 65
-          });
-          map.add(pl);
-          routeOverlays.push(pl);
-        });
-      } else if (activeCand.tmcSegments && activeCand.tmcSegments.length) {
-        activeCand.tmcSegments.forEach(tmc => {
-          const pl = new AMap.Polyline({
-            path: tmc.path,
-            strokeColor: tmcColorMap[tmc.status] || '#10b981',
-            strokeWeight: 10,
-            strokeOpacity: 0.96,
-            lineJoin: 'round',
-            showDir: true,
-            zIndex: 65
-          });
-          map.add(pl);
-          routeOverlays.push(pl);
-        });
-      } else {
-        const mainLine = new AMap.Polyline({
-          path: routeCoordsGcj,
-          strokeColor: '#10b981',
-          strokeWeight: 10,
-          strokeOpacity: 0.96,
-          lineJoin: 'round',
-          showDir: true,
-          zIndex: 65
-        });
-        map.add(mainLine);
-        routeOverlays.push(mainLine);
-      }
-
-      // 4) 标注沿途红绿灯路口与终点
-      routeSteps.forEach((s, i) => {
-        if (i > 0 && i < routeSteps.length - 1 && i % 2 === 1) {
-          const tlM = new AMap.Marker({
-            position: [s.lng, s.lat],
-            offset: new AMap.Pixel(-26, -11),
-            zIndex: 80,
-            content: `<div class="map-tl-icon">🚦 信号灯</div>`
-          });
-          map.add(tlM);
-          routeOverlays.push(tlM);
-        }
-      });
-
-      const endPt = routeCoordsGcj[routeCoordsGcj.length - 1];
-      if (endPt) {
-        const destM = new AMap.Marker({ position: endPt, zIndex: 120 });
-        map.add(destM);
-        routeOverlays.push(destM);
-      }
-
-      // 更新 HUD 数据
-      const etaDate = new Date(Date.now() + activeCand.totalMin * 60000);
-      const etaStr = `${String(etaDate.getHours()).padStart(2, '0')}:${String(etaDate.getMinutes()).padStart(2, '0')}`;
-      document.getElementById('remainDist').textContent = `${activeCand.distKm} km`;
-      document.getElementById('etaVal').textContent = etaStr;
-      document.getElementById('turnIcon').textContent = '🛣️';
-      document.getElementById('turnDist').innerHTML = `${activeCand.distKm} km <span>约 ${activeCand.totalMin} 分钟</span>`;
-      document.getElementById('turnRoad').textContent = `${activeCand.tag} · 前往 ${currentDestName}`;
-      document.getElementById('tlTotalCount').textContent = activeCand.lightCount;
-
-      if (isInitial) {
-        speakText(`高德已为您规划3条路线，默认选择${activeCand.tag}方案，全程${activeCand.distKm}公里，预计${activeCand.totalMin}分钟。`);
-      } else {
-        speakText(`已切换至${activeCand.tag}方案，预计${activeCand.totalMin}分钟到达。`);
-      }
-    }
-
-    /********************************************************************
-     * 4. 高德官方全国 POI 实时搜索与下拉联想 (AMap.PlaceSearch)
-     ********************************************************************/
-    const placeSearch = new AMap.PlaceSearch({
-      pageSize: 6,
-      pageIndex: 1,
-      extensions: 'base'
-    });
-
-    const destInput = document.getElementById('destInput');
-    const suggestBox = document.getElementById('poiSuggestList');
-    let searchDebounce = null;
-
-    destInput.addEventListener('input', (e) => {
-      const kw = e.target.value.trim();
-      clearTimeout(searchDebounce);
-      if (!kw) {
-        suggestBox.classList.remove('open');
-        return;
-      }
-      searchDebounce = setTimeout(() => {
-        placeSearch.searchNearBy(kw, currentGcj, 50000, (status, result) => {
-          if (status === 'complete' && result?.poiList?.pois?.length) {
-            renderPoiSuggestions(result.poiList.pois);
-          } else {
-            placeSearch.search(kw, (st2, res2) => {
-              if (st2 === 'complete' && res2?.poiList?.pois?.length) {
-                renderPoiSuggestions(res2.poiList.pois);
-              }
-            });
-          }
-        });
-      }, 240);
-    });
-
-    function renderPoiSuggestions(pois) {
-      suggestBox.innerHTML = pois.map((p, idx) => {
-        const distStr = p.distance ? `${(p.distance / 1000).toFixed(1)}km` : '导航前往';
-        return `
-          <div class="poi-suggest-item" onclick="selectPoiDestination(${p.location.lng}, ${p.location.lat}, '${(p.name || '').replace(/'/g, '')}')">
-            <div>
-              <div class="poi-name">📍 ${p.name}</div>
-              <div class="poi-addr">${p.address || p.type || ''}</div>
-            </div>
-            <div class="poi-tag">${distStr}</div>
-          </div>
-        `;
-      }).join('');
-      suggestBox.classList.add('open');
-    }
-
-    function selectPoiDestination(lng, lat, name) {
-      suggestBox.classList.remove('open');
-      destInput.value = name;
-      planOfficialAmapRoutes(currentGcj, [lng, lat], name);
-    }
-
-    function searchAndNavigate(keyword) {
-      if (!keyword.trim()) return;
-      suggestBox.classList.remove('open');
-      placeSearch.searchNearBy(keyword, currentGcj, 50000, (status, result) => {
-        if (status === 'complete' && result?.poiList?.pois?.length) {
-          const first = result.poiList.pois[0];
-          planOfficialAmapRoutes(currentGcj, [first.location.lng, first.location.lat], first.name);
-        } else {
-          placeSearch.search(keyword, (st2, res2) => {
-            if (st2 === 'complete' && res2?.poiList?.pois?.length) {
-              const first = res2.poiList.pois[0];
-              planOfficialAmapRoutes(currentGcj, [first.location.lng, first.location.lat], first.name);
-            } else {
-              speakText(`未找到${keyword}`);
-            }
-          });
-        }
-      });
-    }
-
-    document.getElementById('btnSearch').addEventListener('click', () => searchAndNavigate(destInput.value));
-    destInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') searchAndNavigate(e.target.value);
-    });
-
-    function quickSearch(keyword) {
-      destInput.value = keyword;
-      searchAndNavigate(keyword);
-    }
-
-    /********************************************************************
-     * 5. 行驶中突发拥堵监测 & 5秒自动改道引擎 (Dynamic Re-Routing)
-     ********************************************************************/
-    async function triggerCongestionRerouteDemo() {
-      if (!allCandidateRoutes.length) return;
-      const curr = allCandidateRoutes[activeRouteIdx];
-      curr.congested = true;
-      curr.totalMin += 8;
-
-      pendingFasterRouteIdx = activeRouteIdx === 0 ? 1 : 0;
-      const fasterCand = allCandidateRoutes[pendingFasterRouteIdx] || allCandidateRoutes[0];
-      const savedMin = Math.max(5, curr.totalMin - fasterCand.totalMin);
-
-      selectRouteByIndex(activeRouteIdx, false);
-
-      document.getElementById('savedMinText').textContent = savedMin;
-      document.getElementById('rerouteReasonText').textContent =
-        `高德实时 TMC 预警：当前路线前方突发严重拥堵（耗时 +8 分钟）。备选【${fasterCand.tag}】路线畅通，可节省 ${savedMin} 分钟！`;
-      document.getElementById('rerouteBanner').classList.add('show');
-
-      speakText(`高德路况提醒，前方突发严重拥堵，已为您发现更快路线，预计节省${savedMin}分钟，5秒后自动切换。`);
-
-      let secLeft = 5;
-      document.getElementById('autoSwitchCountdown').textContent = `${secLeft}s 后自动切换`;
-      if (autoSwitchTimer) clearInterval(autoSwitchTimer);
-
-      autoSwitchTimer = setInterval(() => {
-        secLeft--;
-        if (secLeft <= 0) {
-          clearInterval(autoSwitchTimer);
-          confirmSwitchFasterRoute();
-        } else {
-          document.getElementById('autoSwitchCountdown').textContent = `${secLeft}s 后自动切换`;
-        }
-      }, 1000);
-    }
-
-    function confirmSwitchFasterRoute() {
-      if (autoSwitchTimer) clearInterval(autoSwitchTimer);
-      document.getElementById('rerouteBanner').classList.remove('show');
-      if (allCandidateRoutes[pendingFasterRouteIdx]) {
-        allCandidateRoutes[pendingFasterRouteIdx].congested = false;
-        allCandidateRoutes[pendingFasterRouteIdx].tag = '⚡ 高德动态避堵';
-        selectRouteByIndex(pendingFasterRouteIdx, false);
-        speakText('已为您切换至高德最快畅通路线');
-      }
-    }
-
-    function dismissRerouteBanner() {
-      if (autoSwitchTimer) clearInterval(autoSwitchTimer);
-      document.getElementById('rerouteBanner').classList.remove('show');
-      speakText('继续保持原路线行驶');
-    }
-
-    // 后台每 60 秒按车机最新真实 GPS 重新调用高德 REAL_TRAFFIC 算路
-    setInterval(() => {
-      if (currentDestLngLat && !simTimer) {
-        planOfficialAmapRoutes(currentGcj, currentDestLngLat, currentDestName);
-      }
-    }, 60000);
-
-    /********************************************************************
-     * 6. 3D 车头朝上旋转（文字永远正向！）+ 车道引导牌更新
-     ********************************************************************/
-    function updateLaneGuidanceUI(maneuverType, distM, roadName, instruction) {
-      const bar = document.getElementById('laneGuideBar');
-      const recommendText = document.getElementById('recommendLaneText');
-      const carpetPoly = document.getElementById('arCarpetPoly');
-      const leftEdge = document.getElementById('arLeftEdge');
-      const rightEdge = document.getElementById('arRightEdge');
-
-      let lanesHtml = '';
-      if (maneuverType.includes('left')) {
-        lanesHtml = `
-          <div class="lane-slot recommended"><span class="lane-arrow">↰</span><span class="lane-label">左转(推荐)</span></div>
-          <div class="lane-slot recommended"><span class="lane-arrow">↰↑</span><span class="lane-label">左转直行</span></div>
-          <div class="lane-slot"><span class="lane-arrow">↑</span><span class="lane-label">直行</span></div>
-          <div class="lane-slot"><span class="lane-arrow">↱</span><span class="lane-label">右转</span></div>
-        `;
-        recommendText.textContent = '左侧 2 车道';
-        if (distM < 180) {
-          carpetPoly.setAttribute('points', '215,75 275,75 375,275 185,275');
-          leftEdge.setAttribute('x1', '215');
-          rightEdge.setAttribute('x1', '275');
-        }
-      } else if (maneuverType.includes('right')) {
-        lanesHtml = `
-          <div class="lane-slot"><span class="lane-arrow">↰</span><span class="lane-label">左转</span></div>
-          <div class="lane-slot"><span class="lane-arrow">↑</span><span class="lane-label">直行</span></div>
-          <div class="lane-slot recommended"><span class="lane-arrow">↑↱</span><span class="lane-label">直行右转</span></div>
-          <div class="lane-slot recommended"><span class="lane-arrow">↱</span><span class="lane-label">右转(推荐)</span></div>
-        `;
-        recommendText.textContent = '右侧 2 车道';
-        if (distM < 180) {
-          carpetPoly.setAttribute('points', '285,75 345,75 375,275 185,275');
-          leftEdge.setAttribute('x1', '285');
-          rightEdge.setAttribute('x1', '345');
-        }
-      } else {
-        lanesHtml = `
-          <div class="lane-slot"><span class="lane-arrow">↰</span><span class="lane-label">左转</span></div>
-          <div class="lane-slot recommended"><span class="lane-arrow">↑</span><span class="lane-label">直行(推荐)</span></div>
-          <div class="lane-slot recommended"><span class="lane-arrow">↑</span><span class="lane-label">直行(推荐)</span></div>
-          <div class="lane-slot"><span class="lane-arrow">↱</span><span class="lane-label">右转</span></div>
-        `;
-        recommendText.textContent = '中间 2 车道';
-        carpetPoly.setAttribute('points', '252,75 308,75 375,275 185,275');
-        leftEdge.setAttribute('x1', '252');
-        rightEdge.setAttribute('x1', '308');
-      }
-
-      bar.innerHTML = lanesHtml;
-      document.getElementById('tlRoadTitle').textContent = `前方 ${distM}m · ${roadName || '主干道'}信号灯`;
-      if (instruction) {
-        document.getElementById('turnRoad').textContent = instruction;
-      }
-    }
-
-    function updateCameraAndCar(gcjLng, gcjLat, speedKmh, headingDeg) {
-      currentGcj = [gcjLng, gcjLat];
-      currentSpeedKmh = Math.max(0, Math.round(speedKmh || 0));
-      if (typeof headingDeg === 'number' && !isNaN(headingDeg)) {
-        currentHeading = Math.round(headingDeg);
-      }
-
-      carMarker.setPosition([gcjLng, gcjLat]);
-      document.getElementById('speedVal').textContent = currentSpeedKmh;
-
-      const markerInner = document.getElementById('carMarkerInner');
-      if (isFollow) {
-        map.setCenter([gcjLng, gcjLat]);
-      }
-
-      // 高德原生 WebGL 3D 旋转与俯仰控制：车头朝上时旋转地图，车标固定朝上；北朝上时旋转车标
-      if (is3DHeadingUp) {
-        map.setPitch(isLaneMode ? 62 : 52);
-        map.setRotation(-currentHeading);
-        if (markerInner) markerInner.style.transform = `rotate(0deg)`;
-      } else {
-        map.setPitch(0);
-        map.setRotation(0);
-        if (markerInner) markerInner.style.transform = `rotate(${currentHeading}deg)`;
-      }
-
-      updateNavigationProgress(gcjLat, gcjLng);
-    }
-
-    function updateNavigationProgress(currLat, currLng) {
-      if (!routeSteps.length) return;
-      const nextStep = routeSteps[0];
-      const distM = Math.round(calcDistance(currLat, currLng, nextStep.lat, nextStep.lng));
-
-      const iconMap = {
-        'left': '⬅️', 'slight left': '↖️', 'sharp left': '↙️',
-        'right': '➡️', 'slight right': '↗️', 'sharp right': '↘️',
-        'uturn': '🔄', 'straight': '⬆️'
-      };
-
-      document.getElementById('turnIcon').textContent = iconMap[nextStep.type] || '⬆️';
-      document.getElementById('turnDist').innerHTML = `${distM} 米 <span>后${nextStep.type.includes('left') ? '左转' : (nextStep.type.includes('right') ? '右转' : '直行')}</span>`;
-
-      updateLaneGuidanceUI(nextStep.type, distM, nextStep.name, nextStep.instruction);
-
-      if (distM < 35 && routeSteps.length > 1) {
-        routeSteps.shift();
-        if (routeSteps[0]?.instruction) {
-          speakText(routeSteps[0].instruction);
-        }
-      }
-    }
-
-    /********************************************************************
-     * 7. 悬浮红绿灯读秒器 + 特斯拉真实 GPS 监听
-     ********************************************************************/
-    let tlPhase = 'green';
-    let tlSec = 26;
-    setInterval(() => {
-      tlSec--;
-      if (tlSec <= 0) {
-        if (tlPhase === 'green') { tlPhase = 'yellow'; tlSec = 3; }
-        else if (tlPhase === 'yellow') { tlPhase = 'red'; tlSec = 25; }
-        else { tlPhase = 'green'; tlSec = 30; }
-      }
-      document.getElementById('bulbRed').classList.toggle('active', tlPhase === 'red');
-      document.getElementById('bulbYellow').classList.toggle('active', tlPhase === 'yellow');
-      document.getElementById('bulbGreen').classList.toggle('active', tlPhase === 'green');
-      const secEl = document.getElementById('tlSeconds');
-      secEl.textContent = String(tlSec).padStart(2, '0');
-      secEl.style.color = tlPhase === 'red' ? '#ef4444' : (tlPhase === 'yellow' ? '#f59e0b' : '#10b981');
-    }, 1000);
-
-    let lastValidPos = null;
-    let hasInitialPlanned = false;
-
-    if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(
-        (pos) => {
-          if (simTimer) return;
-          const { longitude, latitude, speed, heading, accuracy } = pos.coords;
-          const [gcjLng, gcjLat] = wgs84ToGcj02(longitude, latitude);
-
-          let finalHeading = heading;
-          if ((finalHeading === null || isNaN(finalHeading)) && lastValidPos) {
-            const dist = calcDistance(lastValidPos[1], lastValidPos[0], gcjLat, gcjLng);
-            finalHeading = dist > 2.5 ? calcBearing(lastValidPos[1], lastValidPos[0], gcjLat, gcjLng) : currentHeading;
-          }
-          lastValidPos = [gcjLng, gcjLat];
-          const kmh = speed ? speed * 3.6 : 0;
-
-          document.getElementById('gpsDot').className = 'status-dot';
-          document.getElementById('gpsStatusText').textContent = `车机真实 GPS 已锁定 (±${Math.round(accuracy || 5)}m)`;
-          updateCameraAndCar(gcjLng, gcjLat, kmh, finalHeading || 0);
-
-          if (!hasInitialPlanned) {
-            hasInitialPlanned = true;
-            planOfficialAmapRoutes([gcjLng, gcjLat], [gcjLng + 0.025, gcjLat + 0.015], '附近超级充电站');
-          }
-        },
-        () => {
-          if (!hasInitialPlanned) {
-            hasInitialPlanned = true;
-            planOfficialAmapRoutes(currentGcj, [121.5265, 31.2305], '世纪大道地铁站');
-          }
-        },
-        { enableHighAccuracy: true, maximumAge: 500, timeout: 5000 }
-      );
-    }
-
-    // 地图加载完成后立即规划一条初始演示路线
-    map.on('complete', () => {
-      if (!hasInitialPlanned) {
-        hasInitialPlanned = true;
-        planOfficialAmapRoutes(currentGcj, [121.5265, 31.2305], '世纪大道枢纽');
-      }
-    });
-
-    /********************************************************************
-     * 8. 底部按钮交互（车道光毯 / 3D车头朝上 / 极夜皮肤 / 模拟试驾）
-     ********************************************************************/
-    function toggleLaneMode() {
-      isLaneMode = !isLaneMode;
-      document.body.classList.toggle('lane-mode-on', isLaneMode);
-      document.getElementById('btnLaneMode').classList.toggle('cyan-active', isLaneMode);
-      map.setZoom(isLaneMode ? 18.2 : 16.5);
-      updateCameraAndCar(currentGcj[0], currentGcj[1], currentSpeedKmh, currentHeading);
-    }
-
-    function toggleFollow() {
-      isFollow = !isFollow;
-      document.getElementById('btnFollow').classList.toggle('active', isFollow);
-      if (isFollow) {
-        map.setCenter(currentGcj);
-        map.setZoom(isLaneMode ? 18.0 : 16.8);
-      }
-    }
-
-    function toggle3DView() {
-      is3DHeadingUp = !is3DHeadingUp;
-      document.getElementById('btn3D').classList.toggle('active', is3DHeadingUp);
-      updateCameraAndCar(currentGcj[0], currentGcj[1], currentSpeedKmh, currentHeading);
-    }
-
-    function toggleTraffic() {
-      isTrafficOn = !isTrafficOn;
-      document.getElementById('btnTraffic').classList.toggle('active', isTrafficOn);
-      if (isTrafficOn) trafficLayer.show();
-      else trafficLayer.hide();
-    }
-
-    function toggleDarkTheme() {
-      isDarkTheme = !isDarkTheme;
-      const btn = document.getElementById('btnTheme');
-      btn.classList.toggle('active', isDarkTheme);
-      btn.textContent = isDarkTheme ? '🌙 极夜3D主题' : '☀️ 日间3D主题';
-      map.setMapStyle(isDarkTheme ? 'amap://styles/darkblue' : 'amap://styles/normal');
-    }
-
-    async function toggleSimulation() {
-      const btn = document.getElementById('btnSim');
-      if (simTimer) {
-        clearInterval(simTimer);
-        simTimer = null;
-        btn.classList.remove('warn');
-        btn.textContent = '🏎️ 模拟试驾';
-        return;
-      }
-
-      btn.classList.add('warn');
-      btn.textContent = '⏹ 停止试驾';
-      isFollow = true;
-      document.getElementById('btnFollow').classList.add('active');
-      map.setZoom(18.2);
-
-      if (routeCoordsGcj.length < 2) {
-        await planOfficialAmapRoutes(currentGcj, [121.5265, 31.2305], '世纪大道枢纽');
-      }
-
-      document.getElementById('gpsDot').className = 'status-dot sim';
-      document.getElementById('gpsStatusText').textContent = '高德 3D 实景巡航中 (3D楼宇+文字正向跟随)';
-
-      simTimer = setInterval(() => {
-        if (simIdx >= routeCoordsGcj.length - 1) simIdx = 0;
-        const curr = routeCoordsGcj[simIdx]; // [lng, lat]
-        const next = routeCoordsGcj[simIdx + 1];
-        const heading = calcBearing(curr[1], curr[0], next[1], next[0]);
-        const simSpeed = Math.round(58 + Math.sin(simIdx * 0.35) * 16);
-
-        updateCameraAndCar(next[0], next[1], simSpeed, heading);
-        simIdx++;
-      }, 360);
-    }
-
-    function launchTeslaFullscreen() {
-      window.location.href = 'https://www.youtube.com/redirect?q=' + encodeURIComponent(window.location.href);
-    }
-
-    /********************************************************************
-     * 9. 📺 车载在线直播 & 7×24 实时新闻子页面引擎 (D档行车不黑屏/不强退)
-     * 原理：不走特斯拉 Theater 全屏接口，而在浏览器普通视口内采用：
-     *   - pip (画中画悬浮窗)
-     *   - split (左半屏高德3D导航 + 右半屏高清直播)
-     *   - full (页内全屏直播电视墙，顶部保留迷你导航条)
-     ********************************************************************/
-    const LIVE_CHANNELS = {
-      gd_tv: {
-        name: '广东卫视高清实时直播',
+    const LIVE_TV_CHANNELS = [
+      {
+        id: 'gd_tv',
+        icon: '🦁',
+        title: '广东卫视 (高清真直播)',
+        sub: '广电实时流 · 与电视机分秒同步',
+        badge: '实时LIVE',
+        type: 'hls',
         url: 'https://h5cul1yar48um3t.wcetv.com/hls/gdsatellite.m3u8'
       },
-      hb_tv: {
-        name: '河北卫视 4K 超高清实时直播',
+      {
+        id: 'hb_tv',
+        icon: '🌟',
+        title: '河北卫视 (4K超高清)',
+        sub: '2160p 超清卫视实时信号',
+        badge: '4K LIVE',
+        type: 'hls',
         url: 'https://event.pull.hebtv.com/live/live101.m3u8'
       },
-      gz_tv: {
-        name: '广州综合频道实时直播',
+      {
+        id: 'gz_tv',
+        icon: '🗼',
+        title: '广州综合频道 (高清)',
+        sub: '腾讯云官方直连 · 粤港澳新闻与剧场',
+        badge: '实时LIVE',
+        type: 'hls',
         url: 'https://tencentplaybusiness.gztv.com/live/zonghes.m3u8'
       },
-      lz_news: {
-        name: '兰州新闻综合 HD 实时直播',
+      {
+        id: 'lz_news',
+        icon: '📰',
+        title: '兰州新闻综合 (HD)',
+        sub: '24小时实时热点新闻直播',
+        badge: '新闻LIVE',
+        type: 'hls',
         url: 'https://liveplus.lzr.com.cn/xwzh/HD/live.m3u8'
       },
-      hrb_news: {
-        name: '哈尔滨新闻综合实时直播',
+      {
+        id: 'hrb_news',
+        icon: '❄️',
+        title: '哈尔滨新闻综合频道',
+        sub: '实时民生新闻与东北剧场',
+        badge: '实时LIVE',
+        type: 'hls',
         url: 'https://stream.hrbtv.net/xwzh/sd/live.m3u8'
       },
-      hb_pub: {
-        name: '河北公共新闻频道实时直播',
+      {
+        id: 'hb_pub',
+        icon: '📡',
+        title: '河北公共新闻频道',
+        sub: '全天候国内新闻与政经直击',
+        badge: '新闻LIVE',
+        type: 'hls',
         url: 'https://event.pull.hebtv.com/live/live106.m3u8'
       },
-      hb_econ: {
-        name: '河北经济生活频道实时直播',
+      {
+        id: 'hb_econ',
+        icon: '💹',
+        title: '河北经济生活频道',
+        sub: '财经民生 · 消费观察实时直播',
+        badge: '财经LIVE',
+        type: 'hls',
         url: 'https://event.pull.hebtv.com/live/live102.m3u8'
       },
-      hb_city: {
-        name: '河北都市频道实时直播',
+      {
+        id: 'hb_city',
+        icon: '🏙️',
+        title: '河北都市频道',
+        sub: '都市热点与黄金档剧场',
+        badge: '实时LIVE',
+        type: 'hls',
         url: 'https://event.pull.hebtv.com/live/live103.m3u8'
       },
-      hb_movie: {
-        name: '河北影视剧场实时直播',
-        url: 'https://event.pull.hebtv.com/live/live104.m3u8'
-      },
-      xz_tv: {
-        name: '西藏卫视汉语台实时直播',
+      {
+        id: 'xz_tv',
+        icon: '🏔️',
+        title: '西藏卫视汉语台',
+        sub: '高原人文与经典剧场实时直播',
+        badge: '实时LIVE',
+        type: 'hls',
         url: 'https://pili-live-hls-zdzz-tv.zzxwcm.cn/zdzz-tv/nqzh.m3u8'
       }
-    };
+    ];
 
-    let hlsPlayer = null;
-    let isLiveOpen = false;
-    let currentLiveLayout = 'split'; // 'pip' | 'split' | 'full'
+    // 🎬 私人电影院片单（后期想看什么电影，直接发给我或点左下角“➕添加电影”即可！）
+    const DEFAULT_MOVIE_CHANNELS = [
+      {
+        id: 'mov_hb_theater',
+        icon: '🍿',
+        title: '河北影视剧场 (24h电影/热剧连播)',
+        sub: '全天候不间断院线电影与经典电视剧',
+        badge: '24h影院',
+        type: 'hls',
+        url: 'https://event.pull.hebtv.com/live/live104.m3u8'
+      },
+      {
+        id: 'mov_hrb_theater',
+        icon: '🎞️',
+        title: '哈尔滨影视剧场 (经典大片连播)',
+        sub: '老电影 · 动作悬疑剧场实时轮播',
+        badge: '24h影院',
+        type: 'hls',
+        url: 'https://stream.hrbtv.net/yspd/sd/live.m3u8'
+      },
+      {
+        id: 'mov_tos_scifi',
+        icon: '🤖',
+        title: '《钢铁之泪 Tears of Steel》科幻大片',
+        sub: '1080p 蓝光原盘点播 · 赛博机甲科幻短片',
+        badge: '1080P点播',
+        type: 'hls',
+        url: 'https://test-streams.mux.dev/tos_ismc/main.m3u8'
+      },
+      {
+        id: 'mov_cgtn_doc',
+        icon: '🌍',
+        title: 'CGTN 纪实人文大片频道',
+        sub: '自然地理 · 历史探索 1080p 超清纪录电影',
+        badge: '超清纪录',
+        type: 'hls',
+        url: 'https://news.cgtn.com/resource/live/document/cgtn-doc.m3u8'
+      },
+      {
+        id: 'mov_redbull',
+        icon: '🏎️',
+        title: 'RedBull 极限赛车与户外大电影',
+        sub: 'F1赛车 / 极限飞跃 / 荒野探险超清电影流',
+        badge: '1080P大片',
+        type: 'hls',
+        url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8'
+      },
+      {
+        id: 'mov_bbb',
+        icon: '🐰',
+        title: '《Big Buck Bunny》3D动画电影',
+        sub: '1080p 60帧高码率动画测试片（哄娃神器）',
+        badge: '动画点播',
+        type: 'hls',
+        url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+      }
+    ];
 
-    function toggleLiveTvPanel(mode) {
-      const container = document.getElementById('liveTvContainer');
-      const video = document.getElementById('teslaLiveVideo');
+    // 🅱️ B站与太空/综合频道
+    const BILI_CHANNELS = [
+      {
+        id: 'nasa_earth',
+        icon: '🛰️',
+        title: 'NASA 国际空间站俯瞰地球',
+        sub: '车机大屏氛围神器 · 实时太空视角',
+        badge: '太空LIVE',
+        type: 'hls',
+        url: 'https://ntv1.akamaized.net/hls/live/2014075/NASA-NTV1-HLS/master.m3u8'
+      },
+      {
+        id: 'bili_lol',
+        icon: '🎮',
+        title: 'B站英雄联盟赛事官方直播间',
+        sub: 'Bilibili H5 免登录内嵌直投 (房号: 6)',
+        badge: 'B站LIVE',
+        type: 'bili_live',
+        url: '6'
+      },
+      {
+        id: 'bili_music',
+        icon: '🎵',
+        title: '24小时车载无损电台音乐直播',
+        sub: 'B站热门音乐电台直播间',
+        badge: '车载音乐',
+        type: 'bili_live',
+        url: '21452505'
+      }
+    ];
 
-      if (mode === 'close' || (isLiveOpen && mode === currentLiveLayout)) {
-        isLiveOpen = false;
-        container.style.display = 'none';
+    /********************************************************************
+     * 2. 状态管理与播放器核心逻辑
+     ********************************************************************/
+    let currentCategory = 'live';
+    let currentPlayingId = 'gd_tv';
+    let mainHls = null;
+    let wallHlsList = [null, null, null, null];
+    let isStageWall = false;
+    let isSoundOn = false;
+
+    // 读取用户保存在本地的自定义电影与直播源
+    function getCustomList(cat) {
+      try {
+        return JSON.parse(localStorage.getItem('TESLA_CUSTOM_' + cat) || '[]');
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function getCategoryItems(cat) {
+      const custom = getCustomList(cat);
+      if (cat === 'live') return [...custom, ...LIVE_TV_CHANNELS];
+      if (cat === 'movies') return [...custom, ...DEFAULT_MOVIE_CHANNELS];
+      return [...custom, ...BILI_CHANNELS];
+    }
+
+    function switchCategory(cat) {
+      currentCategory = cat;
+      document.getElementById('tabLive').classList.toggle('active', cat === 'live');
+      document.getElementById('tabMovies').classList.toggle('active', cat === 'movies');
+      document.getElementById('tabBili').classList.toggle('active', cat === 'bili');
+      renderMediaList();
+    }
+
+    function renderMediaList() {
+      const box = document.getElementById('mediaListContainer');
+      const items = getCategoryItems(currentCategory);
+      box.innerHTML = items.map(item => `
+        <div class="media-card ${item.id === currentPlayingId ? 'active' : ''}" onclick="playMediaItem('${item.id}')">
+          <div class="media-card-left">
+            <div class="media-icon">${item.icon || '🎬'}</div>
+            <div class="media-info">
+              <div class="media-title">${item.title}</div>
+              <div class="media-sub">${item.sub || '点击立即在车机巨幕播放'}</div>
+            </div>
+          </div>
+          <div class="media-badge ${currentCategory === 'movies' ? 'vod' : ''}">${item.badge || '高清'}</div>
+        </div>
+      `).join('');
+    }
+
+    function findMediaById(id) {
+      const all = [
+        ...getCategoryItems('live'),
+        ...getCategoryItems('movies'),
+        ...getCategoryItems('bili')
+      ];
+      return all.find(x => x.id === id);
+    }
+
+    function playMediaItem(id) {
+      const item = findMediaById(id);
+      if (!item) return;
+      currentPlayingId = id;
+
+      if (isStageWall) {
+        setStageMode('single');
+      }
+
+      document.getElementById('nowPlayingTitle').textContent = item.title;
+      renderMediaList();
+
+      const video = document.getElementById('mainVideo');
+      const iframe = document.getElementById('mainIframe');
+
+      // 处理 B站直播间或 B站 BV 视频号
+      if (item.type === 'bili_live' || /^\d+$/.test(item.url)) {
+        if (mainHls) mainHls.destroy();
         video.pause();
-        document.getElementById('teslaLiveIframe').src = '';
+        video.style.display = 'none';
+        iframe.style.display = 'block';
+        iframe.src = `https://www.bilibili.com/blackboard/live/live-activity-player.html?cid=${item.url}&quality=0`;
         return;
       }
 
-      isLiveOpen = true;
-      container.style.display = 'flex';
-      setLiveLayout(mode || 'split');
-
-      if (!video.getAttribute('data-loaded')) {
-        video.setAttribute('data-loaded', '1');
-        loadHlsStream(LIVE_CHANNELS.gd_tv.url);
-      } else {
-        video.play().catch(() => {});
+      if (item.type === 'bili_bv' || /^BV[a-zA-Z0-9]+$/i.test(item.url)) {
+        if (mainHls) mainHls.destroy();
+        video.pause();
+        video.style.display = 'none';
+        iframe.style.display = 'block';
+        iframe.src = `https://player.bilibili.com/player.html?bvid=${item.url}&high_quality=1&danmaku=0&autoplay=1`;
+        return;
       }
-    }
 
-    function setLiveLayout(layout) {
-      currentLiveLayout = layout;
-      const container = document.getElementById('liveTvContainer');
-      document.getElementById('btnLayoutPip').classList.toggle('active', layout === 'pip');
-      document.getElementById('btnLayoutSplit').classList.toggle('active', layout === 'split');
-      document.getElementById('btnLayoutFull').classList.toggle('active', layout === 'full');
-
-      if (layout === 'pip') {
-        // 右侧悬浮小窗模式：不遮挡左侧导航与中央光毯
-        container.style.top = '110px';
-        container.style.right = '20px';
-        container.style.left = 'auto';
-        container.style.width = '430px';
-        container.style.height = '390px';
-      } else if (layout === 'split') {
-        // 左右分屏模式：左半屏看高德 3D 导航，右半屏看直播+实时新闻
-        container.style.top = '96px';
-        container.style.right = '20px';
-        container.style.left = 'auto';
-        container.style.width = 'calc(52vw - 30px)';
-        container.style.height = 'calc(100vh - 185px)';
-      } else if (layout === 'full') {
-        // 子页面全屏电视墙模式（页内全屏，挂 D 档行驶绝不退出！）
-        container.style.top = '16px';
-        container.style.left = '16px';
-        container.style.right = '16px';
-        container.style.width = 'calc(100vw - 32px)';
-        container.style.height = 'calc(100vh - 105px)';
-      }
-    }
-
-    function loadHlsStream(m3u8Url) {
-      const video = document.getElementById('teslaLiveVideo');
-      const iframe = document.getElementById('teslaLiveIframe');
+      // 处理原生 MP4 电影直链
       iframe.style.display = 'none';
       iframe.src = '';
       video.style.display = 'block';
 
+      if (item.url.endsWith('.mp4') || item.url.includes('.mp4?')) {
+        if (mainHls) mainHls.destroy();
+        video.src = item.url;
+        video.muted = !isSoundOn;
+        video.play().catch(() => {});
+        return;
+      }
+
+      // 处理 HLS (.m3u8) 实时直播或电影流
       if (window.Hls && Hls.isSupported()) {
-        if (hlsPlayer) hlsPlayer.destroy();
-        hlsPlayer = new Hls({
+        if (mainHls) mainHls.destroy();
+        mainHls = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
           liveSyncDurationCount: 2,
           liveMaxLatencyDurationCount: 5
         });
-        hlsPlayer.loadSource(m3u8Url);
-        hlsPlayer.attachMedia(video);
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+        mainHls.loadSource(item.url);
+        mainHls.attachMedia(video);
+        mainHls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.muted = !isSoundOn;
           video.play().then(() => {
-            if (hlsPlayer.liveSyncPosition) {
-              video.currentTime = hlsPlayer.liveSyncPosition;
+            if (currentCategory === 'live' && mainHls.liveSyncPosition) {
+              video.currentTime = mainHls.liveSyncPosition;
             }
-          }).catch(() => {});
+          }).catch(() => {
+            video.muted = true;
+            video.play().catch(() => {});
+          });
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = m3u8Url;
+        video.src = item.url;
+        video.muted = !isSoundOn;
         video.play().catch(() => {});
       }
     }
 
-    function switchLiveChannel(key, btnEl) {
-      const ch = LIVE_CHANNELS[key];
-      if (!ch) return;
-      if (btnEl && btnEl.parentElement) {
-        Array.from(btnEl.parentElement.children).forEach(el => {
-          el.style.background = '';
-          el.style.borderColor = '';
-        });
-        btnEl.style.background = 'rgba(37,99,235,0.55)';
-        btnEl.style.borderColor = '#60a5fa';
-      }
-      loadHlsStream(ch.url);
-      speakText(`正在为您切换至${ch.name}`);
-    }
-
-    function playCustomStream() {
-      const val = document.getElementById('customStreamInput').value.trim();
-      if (!val) return;
-      const video = document.getElementById('teslaLiveVideo');
-      const iframe = document.getElementById('teslaLiveIframe');
-
-      // 如果输入的是纯数字（B站直播间房号），直接嵌入 B站 H5 无插件直播播放器
-      if (/^\d+$/.test(val)) {
-        if (hlsPlayer) hlsPlayer.destroy();
-        video.pause();
-        video.style.display = 'none';
-        iframe.style.display = 'block';
-        iframe.src = `https://www.bilibili.com/blackboard/live/live-activity-player.html?cid=${val}&quality=0`;
-        speakText(`已为您打开哔哩哔哩${val}号直播间`);
-        return;
-      }
-
-      loadHlsStream(val);
-      speakText('正在加载自定义直播流');
-    }
-
-    function unmuteLiveVideo() {
-      const video = document.getElementById('teslaLiveVideo');
-      video.muted = !video.muted;
-      const btn = document.getElementById('btnUnmuteLive');
-      btn.textContent = video.muted ? '🔇 点击开启直播原声' : '🔊 直播原声已开启';
-      btn.style.background = video.muted ? 'rgba(239,68,68,0.9)' : 'rgba(16,185,129,0.9)';
-    }
-
-    // 7×24 小时实时滚动新闻电报池 + 同步更新直播窗顶部迷你导航条
-    const REALTIME_NEWS_POOL = [
-      '【新能源快讯】特斯拉全球超级充电桩突破 6 万根，V4 超充全面提速并支持更多车型接入。',
-      '【智能驾驶】高德地图车道级导航与实时红绿灯绿波引导已覆盖全国超 360 个城市核心路网。',
-      '【科技前沿】车载大模型语音助手迎来升级，支持实时路况问答、沿途餐厅推荐与全双工连续对话。',
-      '【出行提醒】高峰时段建议开启 REAL_TRAFFIC 实时避堵策略，系统将每 60 秒自动重算最快路线。',
-      '【太空直播】您可在上方频道栏一键切换 NASA 国际空间站视角，在车机大屏实时俯瞰地球云层。'
+    /********************************************************************
+     * 3. 四宫格电视监控墙模式 (同时监控播放 4 个国内实时频道)
+     ********************************************************************/
+    const WALL_DEFAULT_URLS = [
+      LIVE_TV_CHANNELS[0], // 广东卫视
+      LIVE_TV_CHANNELS[1], // 河北卫视 4K
+      LIVE_TV_CHANNELS[2], // 广州综合
+      LIVE_TV_CHANNELS[3]  // 兰州新闻 HD
     ];
-    let newsIdx = 0;
 
-    setInterval(() => {
-      newsIdx = (newsIdx + 1) % REALTIME_NEWS_POOL.length;
-      const el = document.getElementById('liveNewsTickerText');
-      if (el) el.textContent = REALTIME_NEWS_POOL[newsIdx];
+    function setStageMode(mode) {
+      isStageWall = (mode === 'wall');
+      document.getElementById('btnModeSingle').classList.toggle('active', !isStageWall);
+      document.getElementById('btnModeWall').classList.toggle('active', isStageWall);
 
-      // 同步把左上角下一路口导航信息镜像到直播窗顶部的迷你抬头条，确保全屏看直播也不漏路口
-      const miniNav = document.getElementById('liveMiniNavText');
-      const turnDistEl = document.getElementById('turnDist');
-      const turnRoadEl = document.getElementById('turnRoad');
-      if (miniNav && turnDistEl && turnRoadEl) {
-        miniNav.textContent = `${turnDistEl.textContent} · ${turnRoadEl.textContent} (${currentSpeedKmh} km/h)`;
+      const singleEl = document.getElementById('singleStage');
+      const wallEl = document.getElementById('gridWallStage');
+
+      if (isStageWall) {
+        document.getElementById('mainVideo').pause();
+        singleEl.style.display = 'none';
+        wallEl.style.display = 'grid';
+        document.getElementById('nowPlayingTitle').textContent = '🎛️ 四宫格多路实时电视墙 (点击切换声音，双击放大)';
+        initWallStreams();
+      } else {
+        stopWallStreams();
+        wallEl.style.display = 'none';
+        singleEl.style.display = 'flex';
+        playMediaItem(currentPlayingId);
       }
-    }, 6000);
-
-    function nextNewsItem() {
-      newsIdx = (newsIdx + 1) % REALTIME_NEWS_POOL.length;
-      document.getElementById('liveNewsTickerText').textContent = REALTIME_NEWS_POOL[newsIdx];
     }
 
-    function readLatestNewsAloud() {
-      const txt = document.getElementById('liveNewsTickerText').textContent;
-      speakText(txt);
+    function initWallStreams() {
+      WALL_DEFAULT_URLS.forEach((ch, idx) => {
+        const vid = document.getElementById(`wallVid${idx}`);
+        if (!vid) return;
+        if (window.Hls && Hls.isSupported()) {
+          if (wallHlsList[idx]) wallHlsList[idx].destroy();
+          const h = new Hls({ enableWorker: true, liveSyncDurationCount: 2 });
+          h.loadSource(ch.url);
+          h.attachMedia(vid);
+          h.on(Hls.Events.MANIFEST_PARSED, () => {
+            vid.muted = (idx !== 0 || !isSoundOn);
+            vid.play().catch(() => {});
+          });
+          wallHlsList[idx] = h;
+        } else {
+          vid.src = ch.url;
+          vid.play().catch(() => {});
+        }
+      });
     }
+
+    function stopWallStreams() {
+      wallHlsList.forEach((h, idx) => {
+        if (h) { h.destroy(); wallHlsList[idx] = null; }
+        const vid = document.getElementById(`wallVid${idx}`);
+        if (vid) vid.pause();
+      });
+    }
+
+    function focusWallCell(idx) {
+      document.querySelectorAll('.wall-cell').forEach((c, i) => {
+        c.classList.toggle('focused', i === idx);
+        const vid = document.getElementById(`wallVid${i}`);
+        if (vid) vid.muted = (i !== idx || !isSoundOn);
+      });
+      document.getElementById('nowPlayingTitle').textContent = `🎛️ 四宫格焦点：${WALL_DEFAULT_URLS[idx].title}`;
+    }
+
+    function expandWallCellToSingle(idx) {
+      const target = WALL_DEFAULT_URLS[idx];
+      if (target) {
+        currentPlayingId = target.id;
+        setStageMode('single');
+      }
+    }
+
+    /********************************************************************
+     * 4. 声音解锁、巨幕侧边栏收起、添加新电影保存
+     ********************************************************************/
+    function toggleMasterSound() {
+      isSoundOn = !isSoundOn;
+      const vid = document.getElementById('mainVideo');
+      vid.muted = !isSoundOn;
+
+      const btn = document.getElementById('btnSound');
+      if (isSoundOn) {
+        btn.classList.remove('unmute-warn');
+        btn.classList.add('active');
+        btn.textContent = '🔊 原声已开启';
+      } else {
+        btn.classList.remove('active');
+        btn.classList.add('unmute-warn');
+        btn.textContent = '🔇 点此开启声音';
+      }
+    }
+
+    function togglePureCinema() {
+      document.body.classList.toggle('cinema-pure');
+      const isPure = document.body.classList.contains('cinema-pure');
+      document.getElementById('btnToggleSidebar').textContent = isPure ? '▶ 展开频道/电影列表' : '◀ 收起列表 (巨幕模式)';
+    }
+
+    function toggleTicker() {
+      document.body.classList.toggle('hide-ticker');
+    }
+
+    function openAddModal() {
+      document.getElementById('addModal').classList.add('open');
+    }
+
+    function closeAddModal() {
+      document.getElementById('addModal').classList.remove('open');
+    }
+
+    function saveCustomMedia(targetCat) {
+      const title = document.getElementById('newMediaTitle').value.trim();
+      const url = document.getElementById('newMediaUrl').value.trim();
+      if (!title || !url) return;
+
+      const newItem = {
+        id: 'custom_' + Date.now(),
+        icon: targetCat === 'movies' ? '🍿' : '📡',
+        title,
+        sub: '私人定制片源 · 点击立即播放',
+        badge: targetCat === 'movies' ? '私人片单' : '自定LIVE',
+        type: /^BV/i.test(url) ? 'bili_bv' : (/^\d+$/.test(url) ? 'bili_live' : 'hls'),
+        url
+      };
+
+      const list = getCustomList(targetCat);
+      list.unshift(newItem);
+      localStorage.setItem('TESLA_CUSTOM_' + targetCat, JSON.stringify(list));
+
+      document.getElementById('newMediaTitle').value = '';
+      document.getElementById('newMediaUrl').value = '';
+      closeAddModal();
+
+      switchCategory(targetCat);
+      playMediaItem(newItem.id);
+    }
+
+    function launchTeslaTheaterFullscreen() {
+      window.location.href = 'https://www.youtube.com/redirect?q=' + encodeURIComponent(window.location.href);
+    }
+
+    // 实时时钟与底部滚动资讯
+    const NEWS_ITEMS = [
+      '💡 行车提示：挂 D 档开车时请勿点击右上角「P档真全屏」，直接在当前窗口点击左上角「◀ 收起列表」即可实现 D 档 100% 满屏观看！',
+      '🎬 如何加电影：点击左下角「➕ 添加想看的电影」，粘贴任意 .mp4 / .m3u8 链接或 B站 BV 号即可存入您的私人影院。',
+      '🎛️ 试试右上角的「四宫格电视墙」：可以在特斯拉 15.4 寸大屏上同时监控播放广东卫视、河北卫视 4K、广州综合与兰州新闻 4 路实时电视！'
+    ];
+    let tickerIdx = 0;
+
+    function nextTicker() {
+      tickerIdx = (tickerIdx + 1) % NEWS_ITEMS.length;
+      document.getElementById('tickerText').textContent = NEWS_ITEMS[tickerIdx];
+    }
+
+    setInterval(nextTicker, 8000);
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clockText').textContent =
+        `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // 初始化启动首台实时直播
+    window.addEventListener('DOMContentLoaded', () => {
+      renderMediaList();
+      playMediaItem('gd_tv');
+    });
   </script>
 </body>
 </html>
