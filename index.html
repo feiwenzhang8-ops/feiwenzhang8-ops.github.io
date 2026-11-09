@@ -353,6 +353,31 @@
       background: #000;
     }
 
+    /* D档防黑屏模式：将原生 <video> 缩小为 2x2 像素仅负责发声，画面由 <canvas> 100% 接管渲染 */
+    body.dgear-canvas-mode #mainVideo {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      bottom: 0;
+      left: 0;
+      opacity: 0.01;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    #dGearCanvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+      display: none;
+      z-index: 5;
+    }
+
+    body.dgear-canvas-mode #dGearCanvas {
+      display: block;
+    }
+
     #mainIframe {
       width: 100%;
       height: 100%;
@@ -511,7 +536,7 @@
     }
   </style>
 </head>
-<body>
+<body class="dgear-canvas-mode">
 
   <div class="app-shell">
     <!-- 左侧抽屉：频道列表 & 私人电影院片单 -->
@@ -569,6 +594,9 @@
           <button class="pill-btn unmute-warn" id="btnSound" onclick="toggleMasterSound()">
             🔇 点此开启声音
           </button>
+          <button class="pill-btn active" id="btnDGearMode" onclick="toggleDGearCanvasMode()" title="绕过特斯拉D档对video标签的画面锁，使用CPU软解+Canvas画布渲染">
+            🛡️ D档防黑屏: 已开启
+          </button>
           <button class="pill-btn active" id="btnModeSingle" onclick="setStageMode('single')">
             🖥️ 单屏巨幕
           </button>
@@ -587,6 +615,7 @@
       <!-- 模式 1：单屏高清巨幕播放器 -->
       <div id="singleStage">
         <video id="mainVideo" playsinline autoplay muted controls></video>
+        <canvas id="dGearCanvas" width="1280" height="720"></canvas>
         <iframe id="mainIframe" allow="autoplay; fullscreen"></iframe>
       </div>
 
@@ -594,22 +623,22 @@
       <div id="gridWallStage">
         <div class="wall-cell focused" onclick="focusWallCell(0)" ondblclick="expandWallCellToSingle(0)">
           <video id="wallVid0" playsinline autoplay muted></video>
-          <div class="wall-cell-label"><span class="live-dot"></span> 1. 广东卫视 (实时)</div>
+          <div class="wall-cell-label"><span class="live-dot"></span> 1. CCTV-1 综合 (实时)</div>
           <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(0)">🔍 全屏看此台</button>
         </div>
         <div class="wall-cell" onclick="focusWallCell(1)" ondblclick="expandWallCellToSingle(1)">
           <video id="wallVid1" playsinline autoplay muted></video>
-          <div class="wall-cell-label"><span class="live-dot"></span> 2. 河北卫视 (4K实时)</div>
+          <div class="wall-cell-label"><span class="live-dot"></span> 2. 湖南卫视 (高清实时)</div>
           <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(1)">🔍 全屏看此台</button>
         </div>
         <div class="wall-cell" onclick="focusWallCell(2)" ondblclick="expandWallCellToSingle(2)">
           <video id="wallVid2" playsinline autoplay muted></video>
-          <div class="wall-cell-label"><span class="live-dot"></span> 3. 广州综合频道 (实时)</div>
+          <div class="wall-cell-label"><span class="live-dot"></span> 3. 浙江卫视 (1080P实时)</div>
           <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(2)">🔍 全屏看此台</button>
         </div>
         <div class="wall-cell" onclick="focusWallCell(3)" ondblclick="expandWallCellToSingle(3)">
           <video id="wallVid3" playsinline autoplay muted></video>
-          <div class="wall-cell-label"><span class="live-dot"></span> 4. 兰州新闻综合 (HD)</div>
+          <div class="wall-cell-label"><span class="live-dot"></span> 4. 广东卫视 (高清实时)</div>
           <button class="wall-cell-expand" onclick="event.stopPropagation();expandWallCellToSingle(3)">🔍 全屏看此台</button>
         </div>
       </div>
@@ -658,6 +687,51 @@
      ********************************************************************/
     const LIVE_TV_CHANNELS = [
       {
+        id: 'cctv1',
+        icon: '🇨🇳',
+        title: 'CCTV-1 综合频道 (实时直播)',
+        sub: '中央电视台综合频道 · 新闻联播与黄金剧场',
+        badge: '央媒LIVE',
+        type: 'hls',
+        url: 'https://liveplay-srs.voc.com.cn/hls/tv/134_180adf.m3u8'
+      },
+      {
+        id: 'cctv13',
+        icon: '📡',
+        title: 'CCTV-13 新闻频道 (1080P)',
+        sub: '24小时全天候权威新闻实时直播',
+        badge: '新闻LIVE',
+        type: 'hls',
+        url: 'https://ali-m-l.cztv.com/channels/lantian/channel21/1080p.m3u8'
+      },
+      {
+        id: 'cctv6',
+        icon: '🎬',
+        title: 'CCTV-6 电影频道 (1080P)',
+        sub: '全天候经典院线大片与华语电影连播',
+        badge: '电影LIVE',
+        type: 'hls',
+        url: 'https://ali-m-l.cztv.com/channels/lantian/channel005/1080p.m3u8'
+      },
+      {
+        id: 'zj_tv',
+        icon: '🌊',
+        title: '浙江卫视 (1080P超清真直播)',
+        sub: '中国蓝阿里云官方直连 · 热门综艺与黄金档',
+        badge: '1080P LIVE',
+        type: 'hls',
+        url: 'https://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8'
+      },
+      {
+        id: 'hn_tv',
+        icon: '🌶️',
+        title: '湖南卫视 (高清真直播)',
+        sub: '芒果黄金档 · 王牌综艺与热播大剧实时同步',
+        badge: '卫视LIVE',
+        type: 'hls',
+        url: 'https://hlsal-ldvt.qing.mgtv.com/nn_live/nn_x64/dWlwPTEyNy4wLjAuMSZ1aWQ9cWluZy1jbXMmbm5fdGltZXpvbmU9OCZjZG5leF9pZD1hbF9obHNfbGR2dCZ1dWlkPTliODY4NmU5ZTM2YzYwMmMmZT02OTE0NjA0JnY9MSZpZD1ITldTWkdTVCZzPTcwN2RiYTc2YzJjNmJmMTQ4MmUyZGYzOWU2NWM3YWFi/HNWSZGST.m3u8'
+      },
+      {
         id: 'gd_tv',
         icon: '🦁',
         title: '广东卫视 (高清真直播)',
@@ -685,26 +759,8 @@
         url: 'https://tencentplaybusiness.gztv.com/live/zonghes.m3u8'
       },
       {
-        id: 'lz_news',
-        icon: '📰',
-        title: '兰州新闻综合 (HD)',
-        sub: '24小时实时热点新闻直播',
-        badge: '新闻LIVE',
-        type: 'hls',
-        url: 'https://liveplus.lzr.com.cn/xwzh/HD/live.m3u8'
-      },
-      {
-        id: 'hrb_news',
-        icon: '❄️',
-        title: '哈尔滨新闻综合频道',
-        sub: '实时民生新闻与东北剧场',
-        badge: '实时LIVE',
-        type: 'hls',
-        url: 'https://stream.hrbtv.net/xwzh/sd/live.m3u8'
-      },
-      {
         id: 'hb_pub',
-        icon: '📡',
+        icon: '📰',
         title: '河北公共新闻频道',
         sub: '全天候国内新闻与政经直击',
         badge: '新闻LIVE',
@@ -743,6 +799,15 @@
     // 🎬 私人电影院片单（后期想看什么电影，直接发给我或点左下角“➕添加电影”即可！）
     const DEFAULT_MOVIE_CHANNELS = [
       {
+        id: 'mov_zj_theater',
+        icon: '🎞️',
+        title: '经典影视剧场 (1080P 24h大片连播)',
+        sub: '阿里云 1080P 超清直连 · 院线大片与热剧轮播',
+        badge: '1080P影院',
+        type: 'hls',
+        url: 'https://ali-m-l.cztv.com/channels/lantian/channel005/1080p.m3u8'
+      },
+      {
         id: 'mov_hb_theater',
         icon: '🍿',
         title: '河北影视剧场 (24h电影/热剧连播)',
@@ -750,15 +815,6 @@
         badge: '24h影院',
         type: 'hls',
         url: 'https://event.pull.hebtv.com/live/live104.m3u8'
-      },
-      {
-        id: 'mov_hrb_theater',
-        icon: '🎞️',
-        title: '哈尔滨影视剧场 (经典大片连播)',
-        sub: '老电影 · 动作悬疑剧场实时轮播',
-        badge: '24h影院',
-        type: 'hls',
-        url: 'https://stream.hrbtv.net/yspd/sd/live.m3u8'
       },
       {
         id: 'mov_tos_scifi',
@@ -833,11 +889,320 @@
      * 2. 状态管理与播放器核心逻辑
      ********************************************************************/
     let currentCategory = 'live';
-    let currentPlayingId = 'gd_tv';
+    let currentPlayingId = 'cctv1';
     let mainHls = null;
     let wallHlsList = [null, null, null, null];
     let isStageWall = false;
     let isSoundOn = false;
+    let isDGearCanvasMode = true;
+
+    /********************************************************************
+     * 2.1 特斯拉 D 档防黑屏核心引擎 (MPEG-TS Demux + WebCodecs CPU 软解 + Canvas 2D 直绘)
+     * 原理：特斯拉车机挂入 D 档后，Chromium 底层会屏蔽 <video> 硬件视频层画面（仅保留声音），
+     *       但不会屏蔽 HTML5 <canvas> 画布！因此我们将 <video> 缩小到 2x2 像素专职播放实时声音，
+     *       同时直接拦截 HLS 下载的 .ts 切片字节流，解复用出 H.264 帧送入 CPU 软解码器并画在 <canvas> 上！
+     ********************************************************************/
+    const dGearCanvas = document.getElementById('dGearCanvas');
+    const dGearCtx = dGearCanvas ? dGearCanvas.getContext('2d', { alpha: false }) : null;
+    let dGearDecoder = null;
+    let dGearDecoderCodec = '';
+    let dGearWaitingKey = true;
+    let dGearAuQueue = [];
+    let dGearLastSpsPps = null;
+    let dGearLastCodec = 'avc1.64001f';
+    let dGearFrameTimestamp = 0;
+    let dGearLastWebCodecsRenderMs = 0;
+
+    function resetDGearDecoder() {
+      dGearAuQueue = [];
+      dGearWaitingKey = true;
+      dGearLastSpsPps = null;
+      if (dGearDecoder) {
+        try { dGearDecoder.close(); } catch (_) {}
+        dGearDecoder = null;
+      }
+      dGearDecoderCodec = '';
+    }
+
+    function toggleDGearCanvasMode() {
+      isDGearCanvasMode = !isDGearCanvasMode;
+      document.body.classList.toggle('dgear-canvas-mode', isDGearCanvasMode);
+      const btn = document.getElementById('btnDGearMode');
+      if (btn) {
+        btn.classList.toggle('active', isDGearCanvasMode);
+        btn.textContent = isDGearCanvasMode ? '🛡️ D档防黑屏: 已开启' : '🛡️ D档防黑屏: 已关闭';
+      }
+      if (!isDGearCanvasMode) {
+        resetDGearDecoder();
+      }
+    }
+
+    let dGearAccelPreference = 'no-preference';
+
+    function ensureDGearDecoder(codecStr) {
+      if (!('VideoDecoder' in window)) return false;
+      if (dGearDecoder && dGearDecoder.state === 'configured' && dGearDecoderCodec === codecStr) {
+        return true;
+      }
+      if (dGearDecoder) {
+        try { dGearDecoder.close(); } catch (_) {}
+        dGearDecoder = null;
+      }
+      dGearDecoder = new VideoDecoder({
+        output(frame) {
+          if (isDGearCanvasMode && dGearCanvas && dGearCtx) {
+            if (frame.displayWidth && frame.displayHeight) {
+              if (dGearCanvas.width !== frame.displayWidth || dGearCanvas.height !== frame.displayHeight) {
+                dGearCanvas.width = frame.displayWidth;
+                dGearCanvas.height = frame.displayHeight;
+              }
+            }
+            try {
+              dGearCtx.drawImage(frame, 0, 0, dGearCanvas.width, dGearCanvas.height);
+              dGearLastWebCodecsRenderMs = Date.now();
+            } catch (_) {}
+          }
+          frame.close();
+        },
+        error(err) {
+          console.warn('DGear VideoDecoder error, switching accel mode:', err);
+          dGearAccelPreference = (dGearAccelPreference === 'no-preference') ? 'prefer-software' : 'no-preference';
+          dGearDecoderCodec = '';
+          dGearWaitingKey = true;
+        }
+      });
+
+      // 同步配置解码器，解码帧直接画入 2D <canvas> 绕开特斯拉 D 档对 <video> DOM 层的画面屏蔽
+      try {
+        dGearDecoder.configure({
+          codec: codecStr || 'avc1.64001f',
+          optimizeForLatency: true,
+          hardwareAcceleration: dGearAccelPreference
+        });
+        dGearDecoderCodec = codecStr;
+        dGearWaitingKey = true;
+        return true;
+      } catch (_) {
+        try {
+          dGearDecoder.configure({
+            codec: 'avc1.42E01E',
+            optimizeForLatency: true
+          });
+          dGearDecoderCodec = codecStr;
+          dGearWaitingKey = true;
+          return true;
+        } catch (__) {
+          return false;
+        }
+      }
+    }
+
+    // 解析 MPEG-TS 切片并提取 H.264 Annex-B 帧 (Access Units)
+    function feedTsSegmentToDGearEngine(arrayBuffer) {
+      if (!isDGearCanvasMode || !arrayBuffer) return;
+      const bytes = new Uint8Array(arrayBuffer);
+      const len = bytes.length;
+      let videoPid = -1;
+      const pesChunks = [];
+      let currentPes = [];
+
+      // 查找同步字节 0x47
+      let offset = 0;
+      while (offset + 188 <= len && bytes[offset] !== 0x47) offset++;
+
+      for (; offset + 188 <= len; offset += 188) {
+        if (bytes[offset] !== 0x47) continue;
+        const pusi = (bytes[offset + 1] & 0x40) !== 0;
+        const pid = ((bytes[offset + 1] & 0x1F) << 8) | bytes[offset + 2];
+        const afc = (bytes[offset + 3] >> 4) & 0x03;
+        if (afc === 0 || afc === 2) continue;
+
+        let pos = offset + 4;
+        if (afc === 3) {
+          const adaptLen = bytes[pos];
+          pos += 1 + adaptLen;
+        }
+        if (pos >= offset + 188) continue;
+
+        const payload = bytes.subarray(pos, offset + 188);
+
+        // 自动识别视频流 PID (PES stream_id 0xE0..0xEF)
+        if (pusi && payload.length >= 9 &&
+            payload[0] === 0x00 && payload[1] === 0x00 && payload[2] === 0x01 &&
+            (payload[3] & 0xF0) === 0xE0) {
+          if (videoPid === -1) videoPid = pid;
+          if (pid === videoPid) {
+            if (currentPes.length > 0) {
+              pesChunks.push(concatUint8Arrays(currentPes));
+              currentPes = [];
+            }
+            const pesHeaderLen = payload[8];
+            const esStart = 9 + pesHeaderLen;
+            if (esStart < payload.length) {
+              currentPes.push(payload.subarray(esStart));
+            }
+          }
+        } else if (pid === videoPid && currentPes.length > 0) {
+          currentPes.push(payload);
+        }
+      }
+      if (currentPes.length > 0) {
+        pesChunks.push(concatUint8Arrays(currentPes));
+      }
+
+      // 从每个 PES 包提取 NAL 单元并组装为 Access Unit
+      for (let i = 0; i < pesChunks.length; i++) {
+        parseAnnexBAccessUnit(pesChunks[i]);
+      }
+    }
+
+    function concatUint8Arrays(arrList) {
+      let total = 0;
+      for (let i = 0; i < arrList.length; i++) total += arrList[i].length;
+      const out = new Uint8Array(total);
+      let pos = 0;
+      for (let i = 0; i < arrList.length; i++) {
+        out.set(arrList[i], pos);
+        pos += arrList[i].length;
+      }
+      return out;
+    }
+
+    function parseAnnexBAccessUnit(esBytes) {
+      const nals = [];
+      const len = esBytes.length;
+      let i = 0;
+      let nalStart = -1;
+
+      while (i < len - 3) {
+        if (esBytes[i] === 0 && esBytes[i + 1] === 0 &&
+            (esBytes[i + 2] === 1 || (esBytes[i + 2] === 0 && esBytes[i + 3] === 1))) {
+          const scLen = esBytes[i + 2] === 1 ? 3 : 4;
+          if (nalStart !== -1) {
+            nals.push(esBytes.subarray(nalStart, i));
+          }
+          nalStart = i;
+          i += scLen;
+        } else {
+          i++;
+        }
+      }
+      if (nalStart !== -1 && nalStart < len) {
+        nals.push(esBytes.subarray(nalStart, len));
+      }
+      if (nals.length === 0) return;
+
+      let hasIdr = false;
+      let hasSlice = false;
+      let spsNal = null;
+      let ppsNal = null;
+
+      for (let k = 0; k < nals.length; k++) {
+        const nal = nals[k];
+        const scLen = (nal[2] === 1) ? 3 : 4;
+        if (nal.length <= scLen) continue;
+        const nalType = nal[scLen] & 0x1F;
+        if (nalType === 7 && nal.length >= scLen + 4) {
+          spsNal = nal;
+          const p = nal[scLen + 1].toString(16).padStart(2, '0');
+          const c = nal[scLen + 2].toString(16).padStart(2, '0');
+          const l = nal[scLen + 3].toString(16).padStart(2, '0');
+          dGearLastCodec = `avc1.${p}${c}${l}`;
+        } else if (nalType === 8) {
+          ppsNal = nal;
+        } else if (nalType === 5) {
+          hasIdr = true;
+        } else if (nalType === 1) {
+          hasSlice = true;
+        }
+      }
+
+      if (spsNal && ppsNal) {
+        dGearLastSpsPps = concatUint8Arrays([spsNal, ppsNal]);
+      }
+
+      if (!hasIdr && !hasSlice) return;
+
+      let frameBytes = esBytes;
+      if (hasIdr && (!spsNal || !ppsNal) && dGearLastSpsPps) {
+        frameBytes = concatUint8Arrays([dGearLastSpsPps, esBytes]);
+      }
+
+      // 保持队列在合理长度（最多缓存约 12 秒视频帧 = 360 帧）
+      if (dGearAuQueue.length > 360) {
+        const nextKeyIdx = dGearAuQueue.findIndex((x, idx) => idx > 60 && x.isKey);
+        if (nextKeyIdx !== -1) {
+          dGearAuQueue.splice(0, nextKeyIdx);
+          dGearWaitingKey = true;
+        } else {
+          dGearAuQueue.shift();
+        }
+      }
+
+      dGearAuQueue.push({
+        isKey: hasIdr,
+        data: frameBytes,
+        codec: dGearLastCodec
+      });
+    }
+
+    // 自适应帧率节拍器：同步送入 WebCodecs CPU 软解码并绘制到 <canvas>
+    setInterval(() => {
+      if (!isDGearCanvasMode || isStageWall) return;
+
+      if (dGearAuQueue.length > 0 && ('VideoDecoder' in window)) {
+        const decodeCount = dGearAuQueue.length > 180 ? 2 : 1;
+        for (let step = 0; step < decodeCount; step++) {
+          if (dGearAuQueue.length === 0) break;
+
+          const peek = dGearAuQueue[0];
+          const ok = ensureDGearDecoder(peek.codec);
+          if (!ok || !dGearDecoder || dGearDecoder.state !== 'configured') break;
+
+          if (dGearWaitingKey) {
+            // 立即跳过所有非关键帧，直达队列中的第一个 IDR 关键帧
+            while (dGearAuQueue.length > 0 && !dGearAuQueue[0].isKey) {
+              dGearAuQueue.shift();
+            }
+            if (dGearAuQueue.length === 0) break;
+            dGearWaitingKey = false;
+          }
+
+          const item = dGearAuQueue.shift();
+          if (!item) break;
+
+          try {
+            const chunk = new EncodedVideoChunk({
+              type: item.isKey ? 'key' : 'delta',
+              timestamp: dGearFrameTimestamp,
+              data: item.data
+            });
+            dGearFrameTimestamp += 33333;
+            dGearDecoder.decode(chunk);
+          } catch (e) {
+            dGearWaitingKey = true;
+            break;
+          }
+        }
+        return;
+      }
+
+      // 兜底渲染通道：当播放 MP4 直链或首个切片尚未解出时，若 <video> 帧可读则直接转绘到 Canvas
+      const video = document.getElementById('mainVideo');
+      if (video && !video.paused && video.readyState >= 2 && Date.now() - dGearLastWebCodecsRenderMs > 1200) {
+        if (dGearCanvas && dGearCtx) {
+          const vw = video.videoWidth || 1280;
+          const vh = video.videoHeight || 720;
+          if (dGearCanvas.width !== vw || dGearCanvas.height !== vh) {
+            dGearCanvas.width = vw;
+            dGearCanvas.height = vh;
+          }
+          try {
+            dGearCtx.drawImage(video, 0, 0, vw, vh);
+          } catch (_) {}
+        }
+      }
+    }, 33);
 
     // 读取用户保存在本地的自定义电影与直播源
     function getCustomList(cat) {
@@ -903,12 +1268,14 @@
 
       const video = document.getElementById('mainVideo');
       const iframe = document.getElementById('mainIframe');
+      resetDGearDecoder();
 
       // 处理 B站直播间或 B站 BV 视频号
       if (item.type === 'bili_live' || /^\d+$/.test(item.url)) {
         if (mainHls) mainHls.destroy();
         video.pause();
         video.style.display = 'none';
+        if (dGearCanvas) dGearCanvas.style.display = 'none';
         iframe.style.display = 'block';
         iframe.src = `https://www.bilibili.com/blackboard/live/live-activity-player.html?cid=${item.url}&quality=0`;
         return;
@@ -918,6 +1285,7 @@
         if (mainHls) mainHls.destroy();
         video.pause();
         video.style.display = 'none';
+        if (dGearCanvas) dGearCanvas.style.display = 'none';
         iframe.style.display = 'block';
         iframe.src = `https://player.bilibili.com/player.html?bvid=${item.url}&high_quality=1&danmaku=0&autoplay=1`;
         return;
@@ -927,6 +1295,7 @@
       iframe.style.display = 'none';
       iframe.src = '';
       video.style.display = 'block';
+      if (dGearCanvas) dGearCanvas.style.display = '';
 
       if (item.url.endsWith('.mp4') || item.url.includes('.mp4?')) {
         if (mainHls) mainHls.destroy();
@@ -940,13 +1309,21 @@
       if (window.Hls && Hls.isSupported()) {
         if (mainHls) mainHls.destroy();
         mainHls = new Hls({
-          enableWorker: true,
+          enableWorker: false,
           lowLatencyMode: true,
           liveSyncDurationCount: 2,
           liveMaxLatencyDurationCount: 5
         });
         mainHls.loadSource(item.url);
         mainHls.attachMedia(video);
+
+        // 核心：拦截每一个下载完成的 .ts 视频切片，直接喂给 D 档 Canvas 软解渲染引擎！
+        mainHls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+          if (isDGearCanvasMode && data && data.payload) {
+            feedTsSegmentToDGearEngine(data.payload);
+          }
+        });
+
         mainHls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.muted = !isSoundOn;
           video.play().then(() => {
@@ -969,10 +1346,10 @@
      * 3. 四宫格电视监控墙模式 (同时监控播放 4 个国内实时频道)
      ********************************************************************/
     const WALL_DEFAULT_URLS = [
-      LIVE_TV_CHANNELS[0], // 广东卫视
-      LIVE_TV_CHANNELS[1], // 河北卫视 4K
-      LIVE_TV_CHANNELS[2], // 广州综合
-      LIVE_TV_CHANNELS[3]  // 兰州新闻 HD
+      LIVE_TV_CHANNELS[0], // CCTV-1 综合
+      LIVE_TV_CHANNELS[4], // 湖南卫视
+      LIVE_TV_CHANNELS[3], // 浙江卫视 1080P
+      LIVE_TV_CHANNELS[5]  // 广东卫视
     ];
 
     function setStageMode(mode) {
@@ -1114,9 +1491,9 @@
 
     // 实时时钟与底部滚动资讯
     const NEWS_ITEMS = [
-      '💡 行车提示：挂 D 档开车时请勿点击右上角「P档真全屏」，直接在当前窗口点击左上角「◀ 收起列表」即可实现 D 档 100% 满屏观看！',
-      '🎬 如何加电影：点击左下角「➕ 添加想看的电影」，粘贴任意 .mp4 / .m3u8 链接或 B站 BV 号即可存入您的私人影院。',
-      '🎛️ 试试右上角的「四宫格电视墙」：可以在特斯拉 15.4 寸大屏上同时监控播放广东卫视、河北卫视 4K、广州综合与兰州新闻 4 路实时电视！'
+      '🛡️ D档防黑屏引擎已默认开启：已绕过特斯拉 D 档对 <video> 的画面屏蔽，采用 <canvas> 实时软解直绘，挂 D 档开车画面常亮有声音！',
+      '📺 已新增：CCTV-1 综合、CCTV-6 电影、CCTV-13 新闻、浙江卫视 (1080P)、湖南卫视，并已清理兰州与哈尔滨频道。',
+      '🎛️ 试试右上角的「四宫格电视墙」：可以在特斯拉 15.4 寸大屏上同时监控播放 CCTV-1、湖南卫视、浙江卫视 1080P 与广东卫视 4 路实时电视！'
     ];
     let tickerIdx = 0;
 
@@ -1135,10 +1512,28 @@
     setInterval(updateClock, 1000);
     updateClock();
 
+    // 锁车熄屏自动断流休眠保护：当特斯拉锁车关屏 (document.hidden) 时自动暂停拉流，防止阻止车辆休眠掉电；亮屏时自动恢复！
+    document.addEventListener('visibilitychange', () => {
+      const video = document.getElementById('mainVideo');
+      if (document.hidden) {
+        if (video) video.pause();
+        if (mainHls) mainHls.stopLoad();
+        stopWallStreams();
+        resetDGearDecoder();
+      } else {
+        if (isStageWall) {
+          initWallStreams();
+        } else {
+          if (mainHls) mainHls.startLoad();
+          if (video) video.play().catch(() => {});
+        }
+      }
+    });
+
     // 初始化启动首台实时直播
     window.addEventListener('DOMContentLoaded', () => {
       renderMediaList();
-      playMediaItem('gd_tv');
+      playMediaItem('cctv1');
     });
   </script>
 </body>
