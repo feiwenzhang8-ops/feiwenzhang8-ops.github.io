@@ -353,24 +353,25 @@
       background: #000;
     }
 
-    /* D档防黑屏模式：将原生 <video> 缩小为 2x2 像素仅负责发声，画面由 <canvas> 100% 接管渲染 */
+    /* D档防黑屏模式：保持原生 <video> 100% 全尺寸（防止 Chromium 5秒后判定为极小隐藏元素而自动挂起声音与拉流），
+       同时将 <canvas> 悬浮覆盖在视频画面上方（留出底部 48px 原生音量/进度控制条）由 Canvas 100% 渲染画面！ */
     body.dgear-canvas-mode #mainVideo {
-      position: absolute;
-      width: 2px;
-      height: 2px;
-      bottom: 0;
-      left: 0;
-      opacity: 0.01;
-      pointer-events: none;
+      width: 100%;
+      height: 100%;
+      opacity: 1;
       z-index: 1;
     }
 
     #dGearCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
-      height: 100%;
+      height: calc(100% - 48px);
       object-fit: contain;
       background: #000;
       display: none;
+      pointer-events: none;
       z-index: 5;
     }
 
@@ -698,38 +699,38 @@
       {
         id: 'cctv13',
         icon: '📡',
-        title: 'CCTV-13 新闻频道 (1080P)',
-        sub: '24小时全天候权威新闻实时直播',
+        title: 'CCTV-13 新闻直播 (高清)',
+        sub: '24小时全天候实时热点新闻直击',
         badge: '新闻LIVE',
         type: 'hls',
-        url: 'https://ali-m-l.cztv.com/channels/lantian/channel21/1080p.m3u8'
+        url: 'https://tencentplaybusiness.gztv.com/live/xinwen.m3u8'
       },
       {
         id: 'cctv6',
         icon: '🎬',
-        title: 'CCTV-6 电影频道 (1080P)',
+        title: 'CCTV-6 电影剧场 (高清)',
         sub: '全天候经典院线大片与华语电影连播',
         badge: '电影LIVE',
         type: 'hls',
-        url: 'https://ali-m-l.cztv.com/channels/lantian/channel005/1080p.m3u8'
+        url: 'https://event.pull.hebtv.com/live/live104.m3u8'
       },
       {
         id: 'zj_tv',
         icon: '🌊',
-        title: '浙江卫视 (1080P超清真直播)',
-        sub: '中国蓝阿里云官方直连 · 热门综艺与黄金档',
-        badge: '1080P LIVE',
+        title: '浙江卫视 / 蓝媒直播 (高清)',
+        sub: '中国蓝新蓝网云端直连 · 实时递增真直播',
+        badge: '卫视LIVE',
         type: 'hls',
-        url: 'https://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8'
+        url: 'https://l.cztvcloud.com/channels/lantian/SXxiaoshan2/720p.m3u8'
       },
       {
         id: 'hn_tv',
         icon: '🌶️',
-        title: '湖南卫视 (高清真直播)',
-        sub: '芒果黄金档 · 王牌综艺与热播大剧实时同步',
+        title: '湖南卫视 / 湘媒直播 (高清)',
+        sub: '湖南华声在线官方CDN直连 · 实时同步真直播',
         badge: '卫视LIVE',
         type: 'hls',
-        url: 'https://hlsal-ldvt.qing.mgtv.com/nn_live/nn_x64/dWlwPTEyNy4wLjAuMSZ1aWQ9cWluZy1jbXMmbm5fdGltZXpvbmU9OCZjZG5leF9pZD1hbF9obHNfbGR2dCZ1dWlkPTliODY4NmU5ZTM2YzYwMmMmZT02OTE0NjA0JnY9MSZpZD1ITldTWkdTVCZzPTcwN2RiYTc2YzJjNmJmMTQ4MmUyZGYzOWU2NWM3YWFi/HNWSZGST.m3u8'
+        url: 'https://liveplay-srs.voc.com.cn/hls/tv/183_554704.m3u8'
       },
       {
         id: 'gd_tv',
@@ -801,11 +802,11 @@
       {
         id: 'mov_zj_theater',
         icon: '🎞️',
-        title: '经典影视剧场 (1080P 24h大片连播)',
-        sub: '阿里云 1080P 超清直连 · 院线大片与热剧轮播',
-        badge: '1080P影院',
+        title: '南国都市影视剧场 (4K 24h大片连播)',
+        sub: '腾讯云超清直连 · 院线大片与热剧轮播',
+        badge: '4K影院',
         type: 'hls',
-        url: 'https://ali-m-l.cztv.com/channels/lantian/channel005/1080p.m3u8'
+        url: 'https://tencentplaybusiness.gztv.com/live/nanguodushi.m3u8'
       },
       {
         id: 'mov_hb_theater',
@@ -897,10 +898,10 @@
     let isDGearCanvasMode = true;
 
     /********************************************************************
-     * 2.1 特斯拉 D 档防黑屏核心引擎 (MPEG-TS Demux + WebCodecs CPU 软解 + Canvas 2D 直绘)
+     * 2.1 特斯拉 D 档防黑屏核心引擎 (hls.js fMP4 BUFFER_APPENDING + WebCodecs + Canvas 2D 直绘)
      * 原理：特斯拉车机挂入 D 档后，Chromium 底层会屏蔽 <video> 硬件视频层画面（仅保留声音），
-     *       但不会屏蔽 HTML5 <canvas> 画布！因此我们将 <video> 缩小到 2x2 像素专职播放实时声音，
-     *       同时直接拦截 HLS 下载的 .ts 切片字节流，解复用出 H.264 帧送入 CPU 软解码器并画在 <canvas> 上！
+     *       但不会屏蔽 HTML5 <canvas> 画布！我们直接复用 hls.js WebWorker 解复用输出的 fMP4 (avcC + moof + mdat)
+     *       精确视频帧，送入 WebCodecs VideoDecoder 解码并实时画在 <canvas> 上，0 误差、不断流！
      ********************************************************************/
     const dGearCanvas = document.getElementById('dGearCanvas');
     const dGearCtx = dGearCanvas ? dGearCanvas.getContext('2d', { alpha: false }) : null;
@@ -908,15 +909,15 @@
     let dGearDecoderCodec = '';
     let dGearWaitingKey = true;
     let dGearAuQueue = [];
-    let dGearLastSpsPps = null;
-    let dGearLastCodec = 'avc1.64001f';
+    let dGearAvcC = null;
+    let dGearLastCodec = 'avc1.640020';
     let dGearFrameTimestamp = 0;
     let dGearLastWebCodecsRenderMs = 0;
 
     function resetDGearDecoder() {
       dGearAuQueue = [];
       dGearWaitingKey = true;
-      dGearLastSpsPps = null;
+      dGearAvcC = null;
       if (dGearDecoder) {
         try { dGearDecoder.close(); } catch (_) {}
         dGearDecoder = null;
@@ -938,10 +939,13 @@
     }
 
     let dGearAccelPreference = 'no-preference';
+    let dGearHasDecodedOnce = false;
 
-    function ensureDGearDecoder(codecStr) {
+    function ensureDGearDecoder(codecStr, avcCBytes) {
       if (!('VideoDecoder' in window)) return false;
-      if (dGearDecoder && dGearDecoder.state === 'configured' && dGearDecoderCodec === codecStr) {
+      if (!avcCBytes) return false;
+      const sig = codecStr + '_' + avcCBytes.byteLength + '_' + avcCBytes[1] + '_' + avcCBytes[3];
+      if (dGearDecoder && dGearDecoder.state === 'configured' && dGearDecoderCodec === sig) {
         return true;
       }
       if (dGearDecoder) {
@@ -950,6 +954,7 @@
       }
       dGearDecoder = new VideoDecoder({
         output(frame) {
+          dGearHasDecodedOnce = true;
           if (isDGearCanvasMode && dGearCanvas && dGearCtx) {
             if (frame.displayWidth && frame.displayHeight) {
               if (dGearCanvas.width !== frame.displayWidth || dGearCanvas.height !== frame.displayHeight) {
@@ -965,30 +970,33 @@
           frame.close();
         },
         error(err) {
-          console.warn('DGear VideoDecoder error, switching accel mode:', err);
-          dGearAccelPreference = (dGearAccelPreference === 'no-preference') ? 'prefer-software' : 'no-preference';
+          console.warn('DGear VideoDecoder transient error, waiting next keyframe:', err);
+          if (!dGearHasDecodedOnce) {
+            dGearAccelPreference = (dGearAccelPreference === 'no-preference') ? 'prefer-software' : 'no-preference';
+          }
           dGearDecoderCodec = '';
           dGearWaitingKey = true;
         }
       });
 
-      // 同步配置解码器，解码帧直接画入 2D <canvas> 绕开特斯拉 D 档对 <video> DOM 层的画面屏蔽
       try {
         dGearDecoder.configure({
-          codec: codecStr || 'avc1.64001f',
+          codec: codecStr || 'avc1.640020',
+          description: avcCBytes,
           optimizeForLatency: true,
           hardwareAcceleration: dGearAccelPreference
         });
-        dGearDecoderCodec = codecStr;
+        dGearDecoderCodec = sig;
         dGearWaitingKey = true;
         return true;
       } catch (_) {
         try {
           dGearDecoder.configure({
-            codec: 'avc1.42E01E',
+            codec: codecStr || 'avc1.640020',
+            description: avcCBytes,
             optimizeForLatency: true
           });
-          dGearDecoderCodec = codecStr;
+          dGearDecoderCodec = sig;
           dGearWaitingKey = true;
           return true;
         } catch (__) {
@@ -997,170 +1005,134 @@
       }
     }
 
-    // 解析 MPEG-TS 切片并提取 H.264 Annex-B 帧 (Access Units)
-    function feedTsSegmentToDGearEngine(arrayBuffer) {
-      if (!isDGearCanvasMode || !arrayBuffer) return;
-      const bytes = new Uint8Array(arrayBuffer);
-      const len = bytes.length;
-      let videoPid = -1;
-      const pesChunks = [];
-      let currentPes = [];
+    // 直接解析 hls.js BUFFER_APPENDING 产出的标准 fMP4 (ftyp/moov + moof/mdat)
+    function feedFmp4ToDGearEngine(rawData) {
+      if (!isDGearCanvasMode || !rawData) return;
+      const u = rawData instanceof Uint8Array
+        ? rawData
+        : new Uint8Array(rawData.buffer || rawData, rawData.byteOffset || 0, rawData.byteLength || rawData.length);
+      const len = u.byteLength;
+      if (len < 16) return;
 
-      // 查找同步字节 0x47
+      const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
       let offset = 0;
-      while (offset + 188 <= len && bytes[offset] !== 0x47) offset++;
+      let pendingSampleSizes = [];
+      let pendingSampleIsKey = [];
 
-      for (; offset + 188 <= len; offset += 188) {
-        if (bytes[offset] !== 0x47) continue;
-        const pusi = (bytes[offset + 1] & 0x40) !== 0;
-        const pid = ((bytes[offset + 1] & 0x1F) << 8) | bytes[offset + 2];
-        const afc = (bytes[offset + 3] >> 4) & 0x03;
-        if (afc === 0 || afc === 2) continue;
+      while (offset + 8 <= len) {
+        const boxSz = dv.getUint32(offset);
+        if (boxSz < 8 || offset + boxSz > len) break;
+        const b0 = u[offset + 4], b1 = u[offset + 5], b2 = u[offset + 6], b3 = u[offset + 7];
 
-        let pos = offset + 4;
-        if (afc === 3) {
-          const adaptLen = bytes[pos];
-          pos += 1 + adaptLen;
-        }
-        if (pos >= offset + 188) continue;
-
-        const payload = bytes.subarray(pos, offset + 188);
-
-        // 自动识别视频流 PID (PES stream_id 0xE0..0xEF)
-        if (pusi && payload.length >= 9 &&
-            payload[0] === 0x00 && payload[1] === 0x00 && payload[2] === 0x01 &&
-            (payload[3] & 0xF0) === 0xE0) {
-          if (videoPid === -1) videoPid = pid;
-          if (pid === videoPid) {
-            if (currentPes.length > 0) {
-              pesChunks.push(concatUint8Arrays(currentPes));
-              currentPes = [];
-            }
-            const pesHeaderLen = payload[8];
-            const esStart = 9 + pesHeaderLen;
-            if (esStart < payload.length) {
-              currentPes.push(payload.subarray(esStart));
+        // 1. 'moov' (0x6D6F6F76): 提取 avcC 解码配置记录
+        if (b0 === 0x6D && b1 === 0x6F && b2 === 0x6F && b3 === 0x76) {
+          for (let i = offset + 8; i < offset + boxSz - 8; i++) {
+            if (u[i + 4] === 0x61 && u[i + 5] === 0x76 && u[i + 6] === 0x63 && u[i + 7] === 0x43) { // 'avcC'
+              const avcCSz = dv.getUint32(i);
+              if (avcCSz > 11 && i + avcCSz <= offset + boxSz) {
+                dGearAvcC = new Uint8Array(u.subarray(i + 8, i + avcCSz));
+                const p = dGearAvcC[1].toString(16).padStart(2, '0');
+                const c = dGearAvcC[2].toString(16).padStart(2, '0');
+                const l = dGearAvcC[3].toString(16).padStart(2, '0');
+                dGearLastCodec = `avc1.${p}${c}${l}`;
+                break;
+              }
             }
           }
-        } else if (pid === videoPid && currentPes.length > 0) {
-          currentPes.push(payload);
         }
-      }
-      if (currentPes.length > 0) {
-        pesChunks.push(concatUint8Arrays(currentPes));
-      }
-
-      // 从每个 PES 包提取 NAL 单元并组装为 Access Unit
-      for (let i = 0; i < pesChunks.length; i++) {
-        parseAnnexBAccessUnit(pesChunks[i]);
-      }
-    }
-
-    function concatUint8Arrays(arrList) {
-      let total = 0;
-      for (let i = 0; i < arrList.length; i++) total += arrList[i].length;
-      const out = new Uint8Array(total);
-      let pos = 0;
-      for (let i = 0; i < arrList.length; i++) {
-        out.set(arrList[i], pos);
-        pos += arrList[i].length;
-      }
-      return out;
-    }
-
-    function parseAnnexBAccessUnit(esBytes) {
-      const nals = [];
-      const len = esBytes.length;
-      let i = 0;
-      let nalStart = -1;
-
-      while (i < len - 3) {
-        if (esBytes[i] === 0 && esBytes[i + 1] === 0 &&
-            (esBytes[i + 2] === 1 || (esBytes[i + 2] === 0 && esBytes[i + 3] === 1))) {
-          const scLen = esBytes[i + 2] === 1 ? 3 : 4;
-          if (nalStart !== -1) {
-            nals.push(esBytes.subarray(nalStart, i));
+        // 2. 'moof' (0x6D6F6F66): 提取 trun 中每一帧的精确字节长度与关键帧标记
+        else if (b0 === 0x6D && b1 === 0x6F && b2 === 0x6F && b3 === 0x66) {
+          pendingSampleSizes = [];
+          pendingSampleIsKey = [];
+          for (let i = offset + 8; i < offset + boxSz - 16; i++) {
+            if (u[i + 4] === 0x74 && u[i + 5] === 0x72 && u[i + 6] === 0x75 && u[i + 7] === 0x6E) { // 'trun'
+              const trunSz = dv.getUint32(i);
+              if (trunSz < 16 || i + trunSz > offset + boxSz) continue;
+              const flags = (u[i + 9] << 16) | (u[i + 10] << 8) | u[i + 11];
+              const sampleCount = dv.getUint32(i + 12);
+              let pos = i + 16;
+              if (flags & 0x001) pos += 4; // data_offset
+              let firstFlags = 0;
+              if (flags & 0x004) {
+                firstFlags = dv.getUint32(pos);
+                pos += 4;
+              }
+              for (let s = 0; s < sampleCount && pos <= i + trunSz; s++) {
+                if (flags & 0x100) pos += 4; // sample_duration
+                let sz = 0;
+                if (flags & 0x200) {
+                  sz = dv.getUint32(pos);
+                  pos += 4;
+                }
+                let sflags = (s === 0 && (flags & 0x004)) ? firstFlags : 0;
+                if (flags & 0x400) {
+                  sflags = dv.getUint32(pos);
+                  pos += 4;
+                }
+                if (flags & 0x800) pos += 4; // sample_composition_time_offset
+                const isKey = ((flags & 0x400) || (s === 0 && (flags & 0x004)))
+                  ? ((sflags & 0x00010000) === 0)
+                  : (s === 0);
+                if (sz > 0) {
+                  pendingSampleSizes.push(sz);
+                  pendingSampleIsKey.push(isKey);
+                }
+              }
+              break;
+            }
           }
-          nalStart = i;
-          i += scLen;
-        } else {
-          i++;
         }
-      }
-      if (nalStart !== -1 && nalStart < len) {
-        nals.push(esBytes.subarray(nalStart, len));
-      }
-      if (nals.length === 0) return;
+        // 3. 'mdat' (0x6D646174): 按 trun 记录的帧大小逐帧切分并推入队列
+        else if (b0 === 0x6D && b1 === 0x64 && b2 === 0x61 && b3 === 0x74) {
+          if (pendingSampleSizes.length > 0 && dGearAvcC) {
+            let curPos = offset + 8;
+            const mdatEnd = offset + boxSz;
+            for (let k = 0; k < pendingSampleSizes.length; k++) {
+              const sz = pendingSampleSizes[k];
+              if (curPos + sz > mdatEnd) break;
+              const frameBytes = new Uint8Array(u.subarray(curPos, curPos + sz));
+              curPos += sz;
 
-      let hasIdr = false;
-      let hasSlice = false;
-      let spsNal = null;
-      let ppsNal = null;
+              if (dGearAuQueue.length > 500) {
+                const nextKeyIdx = dGearAuQueue.findIndex((x, idx) => idx > 80 && x.isKey);
+                if (nextKeyIdx !== -1) {
+                  dGearAuQueue.splice(0, nextKeyIdx);
+                  dGearWaitingKey = true;
+                } else {
+                  dGearAuQueue.shift();
+                }
+              }
 
-      for (let k = 0; k < nals.length; k++) {
-        const nal = nals[k];
-        const scLen = (nal[2] === 1) ? 3 : 4;
-        if (nal.length <= scLen) continue;
-        const nalType = nal[scLen] & 0x1F;
-        if (nalType === 7 && nal.length >= scLen + 4) {
-          spsNal = nal;
-          const p = nal[scLen + 1].toString(16).padStart(2, '0');
-          const c = nal[scLen + 2].toString(16).padStart(2, '0');
-          const l = nal[scLen + 3].toString(16).padStart(2, '0');
-          dGearLastCodec = `avc1.${p}${c}${l}`;
-        } else if (nalType === 8) {
-          ppsNal = nal;
-        } else if (nalType === 5) {
-          hasIdr = true;
-        } else if (nalType === 1) {
-          hasSlice = true;
+              dGearAuQueue.push({
+                isKey: pendingSampleIsKey[k],
+                data: frameBytes,
+                codec: dGearLastCodec,
+                avcC: dGearAvcC
+              });
+            }
+            pendingSampleSizes = [];
+            pendingSampleIsKey = [];
+          }
         }
+
+        offset += boxSz;
       }
-
-      if (spsNal && ppsNal) {
-        dGearLastSpsPps = concatUint8Arrays([spsNal, ppsNal]);
-      }
-
-      if (!hasIdr && !hasSlice) return;
-
-      let frameBytes = esBytes;
-      if (hasIdr && (!spsNal || !ppsNal) && dGearLastSpsPps) {
-        frameBytes = concatUint8Arrays([dGearLastSpsPps, esBytes]);
-      }
-
-      // 保持队列在合理长度（最多缓存约 12 秒视频帧 = 360 帧）
-      if (dGearAuQueue.length > 360) {
-        const nextKeyIdx = dGearAuQueue.findIndex((x, idx) => idx > 60 && x.isKey);
-        if (nextKeyIdx !== -1) {
-          dGearAuQueue.splice(0, nextKeyIdx);
-          dGearWaitingKey = true;
-        } else {
-          dGearAuQueue.shift();
-        }
-      }
-
-      dGearAuQueue.push({
-        isKey: hasIdr,
-        data: frameBytes,
-        codec: dGearLastCodec
-      });
     }
 
-    // 自适应帧率节拍器：同步送入 WebCodecs CPU 软解码并绘制到 <canvas>
+    // 25fps (40ms) 广电标准帧率节拍器：与国内电视直播 25fps 严格同步，绝不抽干缓冲队列！
     setInterval(() => {
       if (!isDGearCanvasMode || isStageWall) return;
 
       if (dGearAuQueue.length > 0 && ('VideoDecoder' in window)) {
-        const decodeCount = dGearAuQueue.length > 180 ? 2 : 1;
+        const decodeCount = dGearAuQueue.length > 350 ? 2 : 1;
         for (let step = 0; step < decodeCount; step++) {
           if (dGearAuQueue.length === 0) break;
 
           const peek = dGearAuQueue[0];
-          const ok = ensureDGearDecoder(peek.codec);
+          const ok = ensureDGearDecoder(peek.codec, peek.avcC);
           if (!ok || !dGearDecoder || dGearDecoder.state !== 'configured') break;
 
           if (dGearWaitingKey) {
-            // 立即跳过所有非关键帧，直达队列中的第一个 IDR 关键帧
             while (dGearAuQueue.length > 0 && !dGearAuQueue[0].isKey) {
               dGearAuQueue.shift();
             }
@@ -1177,7 +1149,7 @@
               timestamp: dGearFrameTimestamp,
               data: item.data
             });
-            dGearFrameTimestamp += 33333;
+            dGearFrameTimestamp += 40000;
             dGearDecoder.decode(chunk);
           } catch (e) {
             dGearWaitingKey = true;
@@ -1189,7 +1161,7 @@
 
       // 兜底渲染通道：当播放 MP4 直链或首个切片尚未解出时，若 <video> 帧可读则直接转绘到 Canvas
       const video = document.getElementById('mainVideo');
-      if (video && !video.paused && video.readyState >= 2 && Date.now() - dGearLastWebCodecsRenderMs > 1200) {
+      if (video && !video.paused && video.readyState >= 2 && Date.now() - dGearLastWebCodecsRenderMs > 2500) {
         if (dGearCanvas && dGearCtx) {
           const vw = video.videoWidth || 1280;
           const vh = video.videoHeight || 720;
@@ -1202,7 +1174,7 @@
           } catch (_) {}
         }
       }
-    }, 33);
+    }, 40);
 
     // 读取用户保存在本地的自定义电影与直播源
     function getCustomList(cat) {
@@ -1309,28 +1281,46 @@
       if (window.Hls && Hls.isSupported()) {
         if (mainHls) mainHls.destroy();
         mainHls = new Hls({
-          enableWorker: false,
-          lowLatencyMode: true,
-          liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 5
+          enableWorker: true,
+          lowLatencyMode: false,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 10,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          manifestLoadingTimeOut: 15000,
+          manifestLoadingMaxRetry: 6,
+          levelLoadingTimeOut: 15000,
+          levelLoadingMaxRetry: 6,
+          fragLoadingTimeOut: 20000,
+          fragLoadingMaxRetry: 6
         });
-        mainHls.loadSource(item.url);
-        mainHls.attachMedia(video);
 
-        // 核心：拦截每一个下载完成的 .ts 视频切片，直接喂给 D 档 Canvas 软解渲染引擎！
-        mainHls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-          if (isDGearCanvasMode && data && data.payload) {
-            feedTsSegmentToDGearEngine(data.payload);
+        // 核心：直接订阅 hls.js WebWorker 解复用后的标准 fMP4 视频缓冲块 (avcC + moof + mdat)！
+        mainHls.on(Hls.Events.BUFFER_APPENDING, (event, data) => {
+          if (isDGearCanvasMode && data && data.type === 'video' && data.data) {
+            feedFmp4ToDGearEngine(data.data);
           }
         });
 
+        // 自动错误恢复与防断流自愈机制
+        mainHls.on(Hls.Events.ERROR, (event, data) => {
+          if (data && data.fatal) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              mainHls.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              mainHls.recoverMediaError();
+            } else {
+              playMediaItem(currentPlayingId);
+            }
+          }
+        });
+
+        mainHls.loadSource(item.url);
+        mainHls.attachMedia(video);
+
         mainHls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.muted = !isSoundOn;
-          video.play().then(() => {
-            if (currentCategory === 'live' && mainHls.liveSyncPosition) {
-              video.currentTime = mainHls.liveSyncPosition;
-            }
-          }).catch(() => {
+          video.play().catch(() => {
             video.muted = true;
             video.play().catch(() => {});
           });
@@ -1529,6 +1519,37 @@
         }
       }
     });
+
+    // 3秒常驻防卡死看门狗：一旦检测到缓冲空洞或浏览器自动暂停，立即自愈跳过空洞继续播放！
+    let lastWatchdogTime = -1;
+    let stallCounter = 0;
+    setInterval(() => {
+      if (document.hidden || isStageWall) return;
+      const video = document.getElementById('mainVideo');
+      if (!video || video.style.display === 'none') return;
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+      if (mainHls) {
+        if (Math.abs(video.currentTime - lastWatchdogTime) < 0.05) {
+          stallCounter++;
+          if (stallCounter >= 3) {
+            mainHls.startLoad();
+            if (video.buffered && video.buffered.length > 0) {
+              const end = video.buffered.end(video.buffered.length - 1);
+              if (end - video.currentTime > 1.5) {
+                video.currentTime = Math.max(0, end - 3);
+              }
+            }
+            video.play().catch(() => {});
+            stallCounter = 0;
+          }
+        } else {
+          stallCounter = 0;
+          lastWatchdogTime = video.currentTime;
+        }
+      }
+    }, 3000);
 
     // 初始化启动首台实时直播
     window.addEventListener('DOMContentLoaded', () => {
